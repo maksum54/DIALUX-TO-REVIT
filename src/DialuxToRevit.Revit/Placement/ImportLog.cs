@@ -75,7 +75,10 @@ namespace DialuxToRevit.Revit.Placement
 
             try
             {
-                return File.ReadAllLines(path).Reverse().Take(count).ToList();
+                // AsEnumerable is load-bearing: on .NET 8 a bare array.Reverse()
+                // binds to MemoryExtensions.Reverse<T>(Span<T>), which reverses
+                // in place and returns void rather than a sequence.
+                return File.ReadAllLines(path).AsEnumerable().Reverse().Take(count).ToList();
             }
             catch (IOException)
             {

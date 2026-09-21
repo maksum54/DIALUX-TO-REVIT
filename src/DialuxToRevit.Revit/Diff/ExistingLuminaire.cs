@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Electrical;
 using DialuxToRevit.Revit.Geometry;
 using DialuxToRevit.Revit.Storage;
 
@@ -159,7 +160,7 @@ namespace DialuxToRevit.Revit.Diff
             }
 
             XYZ target = transform.ToRevit(
-                xMillimetres, yMillimetres, Units.MillimetresToFeet(zMillimetres));
+                xMillimetres, yMillimetres, LengthUnits.MillimetresToFeet(zMillimetres));
 
             // Compared in plan only. Elevation comes from the level and offset
             // the user chose, not from the export, so a change of level would
@@ -167,7 +168,7 @@ namespace DialuxToRevit.Revit.Diff
             double dx = existing.Point.X - target.X;
             double dy = existing.Point.Y - target.Y;
 
-            return Units.FeetToMillimetres(Math.Sqrt((dx * dx) + (dy * dy)));
+            return LengthUnits.FeetToMillimetres(Math.Sqrt((dx * dx) + (dy * dy)));
         }
     }
 }

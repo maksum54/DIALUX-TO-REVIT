@@ -6,6 +6,8 @@
     <AssemblyName>DialuxToRevit.Revit</AssemblyName>
     <RootNamespace>DialuxToRevit.Revit</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Docs are for the parts that need explaining, not every public member. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <!--

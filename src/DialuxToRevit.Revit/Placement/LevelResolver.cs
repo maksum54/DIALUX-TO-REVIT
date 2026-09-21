@@ -60,7 +60,7 @@ namespace DialuxToRevit.Revit.Placement
                 return null;
             }
 
-            double zFeet = Units.MillimetresToFeet(zMillimetres);
+            double zFeet = LengthUnits.MillimetresToFeet(zMillimetres);
             Level below = _levels.LastOrDefault(level => level.Elevation <= zFeet + 1e-6);
             return below ?? _levels[0];
         }
@@ -73,7 +73,7 @@ namespace DialuxToRevit.Revit.Placement
                 return zMillimetres;
             }
 
-            return zMillimetres - Units.FeetToMillimetres(level.Elevation);
+            return zMillimetres - LengthUnits.FeetToMillimetres(level.Elevation);
         }
     }
 }

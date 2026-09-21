@@ -54,8 +54,8 @@ namespace DialuxToRevit.Revit.Geometry
                 rotationDegrees * Math.PI / 180.0,
                 0.0,
                 0.0,
-                Units.MillimetresToFeet(dxMillimetres),
-                Units.MillimetresToFeet(dyMillimetres));
+                LengthUnits.MillimetresToFeet(dxMillimetres),
+                LengthUnits.MillimetresToFeet(dyMillimetres));
         }
 
         /// <summary>
@@ -76,10 +76,10 @@ namespace DialuxToRevit.Revit.Geometry
                 throw new ArgumentNullException(nameof(sourceA));
             }
 
-            double sourceAx = Units.MillimetresToFeet(sourceA.U);
-            double sourceAy = Units.MillimetresToFeet(sourceA.V);
-            double sourceBx = Units.MillimetresToFeet(sourceB.U);
-            double sourceBy = Units.MillimetresToFeet(sourceB.V);
+            double sourceAx = LengthUnits.MillimetresToFeet(sourceA.U);
+            double sourceAy = LengthUnits.MillimetresToFeet(sourceA.V);
+            double sourceBx = LengthUnits.MillimetresToFeet(sourceB.U);
+            double sourceBy = LengthUnits.MillimetresToFeet(sourceB.V);
 
             double sourceAngle = Math.Atan2(sourceBy - sourceAy, sourceBx - sourceAx);
             double targetAngle = Math.Atan2(targetB.Y - targetA.Y, targetB.X - targetA.X);
@@ -103,8 +103,8 @@ namespace DialuxToRevit.Revit.Geometry
         public static double MeasureScaleError(UV sourceA, UV sourceB, XYZ targetA, XYZ targetB)
         {
             double sourceLength = Math.Sqrt(
-                Math.Pow(Units.MillimetresToFeet(sourceB.U - sourceA.U), 2) +
-                Math.Pow(Units.MillimetresToFeet(sourceB.V - sourceA.V), 2));
+                Math.Pow(LengthUnits.MillimetresToFeet(sourceB.U - sourceA.U), 2) +
+                Math.Pow(LengthUnits.MillimetresToFeet(sourceB.V - sourceA.V), 2));
 
             double targetLength = Math.Sqrt(
                 Math.Pow(targetB.X - targetA.X, 2) + Math.Pow(targetB.Y - targetA.Y, 2));
@@ -120,8 +120,8 @@ namespace DialuxToRevit.Revit.Geometry
         /// <summary>Transforms a DIALux point. X and Y are millimetres; Z is already in feet.</summary>
         public XYZ ToRevit(double xMillimetres, double yMillimetres, double zFeet)
         {
-            double x = Units.MillimetresToFeet(xMillimetres) - _originX;
-            double y = Units.MillimetresToFeet(yMillimetres) - _originY;
+            double x = LengthUnits.MillimetresToFeet(xMillimetres) - _originX;
+            double y = LengthUnits.MillimetresToFeet(yMillimetres) - _originY;
 
             return new XYZ(
                 (x * _cos) - (y * _sin) + _offsetX,

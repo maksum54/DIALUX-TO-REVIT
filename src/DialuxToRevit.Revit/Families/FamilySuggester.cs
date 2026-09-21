@@ -78,8 +78,8 @@ namespace DialuxToRevit.Revit.Families
                     return null;
                 }
 
-                double width = Units.FeetToMillimetres(box.Max.X - box.Min.X);
-                double depth = Units.FeetToMillimetres(box.Max.Y - box.Min.Y);
+                double width = LengthUnits.FeetToMillimetres(box.Max.X - box.Min.X);
+                double depth = LengthUnits.FeetToMillimetres(box.Max.Y - box.Min.Y);
                 double longest = Math.Max(width, depth);
 
                 return longest > 0.0 ? longest : (double?)null;

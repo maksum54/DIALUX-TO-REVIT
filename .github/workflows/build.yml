@@ -26,6 +26,9 @@ jobs:
       - name: Self-contained tests
         run: python3 tests/test_synthetic.py
 
+      - name: Re-import matching rules
+        run: python3 tests/test_diff.py
+
       # Skips when no sample export is present, which is the normal case here:
       # sample exports are project data and this repository is public.
       - name: Pinned regression case

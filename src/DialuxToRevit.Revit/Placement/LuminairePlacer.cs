@@ -84,7 +84,7 @@ namespace DialuxToRevit.Revit.Placement
             }
 
             target.ElevationFeet =
-                target.Level.Elevation + Units.MillimetresToFeet(mapping.OffsetMillimetres);
+                target.Level.Elevation + LengthUnits.MillimetresToFeet(mapping.OffsetMillimetres);
 
             return target;
         }
