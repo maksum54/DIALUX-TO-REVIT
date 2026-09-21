@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    netstandard2.0 on purpose: this assembly holds the DXF reading rules and has
+    no reference to the Revit API, so it can be unit tested without Revit and
+    consumed from the Revit 2025 add-in (.NET 8) unchanged.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>DialuxToRevit.Core</AssemblyName>
+    <RootNamespace>DialuxToRevit.Core</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

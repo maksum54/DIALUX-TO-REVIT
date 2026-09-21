@@ -1,0 +1,14 @@
+# Build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Sample DIALux exports are project data and this repository is public.
+# Keep them out of git; see tests/expected/*.json for how to supply one.
+tests/samples/*.dxf
+tests/samples/*.dwg
+
+__pycache__/
+*.pyc
