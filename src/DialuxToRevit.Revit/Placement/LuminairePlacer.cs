@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
@@ -10,159 +9,172 @@ using DialuxToRevit.Revit.Storage;
 
 namespace DialuxToRevit.Revit.Placement
 {
-    /// <summary>Creates the Revit family instances for an import.</summary>
+    /// <summary>Where a group's luminaires should go, once the mapping is resolved.</summary>
+    public sealed class ResolvedTarget
+    {
+        public FamilyMapping Mapping { get; set; }
+
+        public FamilyTypeEntry Entry { get; set; }
+
+        public Level Level { get; set; }
+
+        /// <summary>Absolute height of the fixtures, in Revit internal units.</summary>
+        public double ElevationFeet { get; set; }
+
+        /// <summary>Why the group cannot be placed, or null when it can.</summary>
+        public string Problem { get; set; }
+
+        public bool IsUsable => Problem == null;
+    }
+
+    /// <summary>
+    /// Creates and updates the Revit family instances.
+    ///
+    /// Only ever one luminaire at a time; the transaction and the ordering
+    /// belong to the caller, so that a first import and a re-import share one
+    /// code path and cannot drift apart.
+    /// </summary>
     public sealed class LuminairePlacer
     {
         private readonly Document _document;
-        private readonly FamilyCatalog _catalog;
-        private readonly LevelResolver _levels;
 
         public LuminairePlacer(Document document)
         {
             _document = document ?? throw new ArgumentNullException(nameof(document));
-            _catalog = FamilyCatalog.Load(document);
-            _levels = LevelResolver.Load(document);
+            Catalog = FamilyCatalog.Load(document);
+            Levels = LevelResolver.Load(document);
         }
 
-        /// <summary>
-        /// Places every mapped group in one transaction.
-        ///
-        /// A luminaire Revit refuses is recorded as a failure and the rest still
-        /// go in, because one awkward point should not cost the other sixty. An
-        /// unexpected error is different: it means the run is no longer
-        /// trustworthy, so the whole transaction is rolled back rather than
-        /// leaving a layout nobody can tell apart from a complete one.
-        /// </summary>
-        public PlacementResult Place(DialuxImportResult import, PlacementOptions options)
+        /// <summary>Lighting fixture types in the project, for the mapping dialog.</summary>
+        public FamilyCatalog Catalog { get; }
+
+        /// <summary>Levels in the project, for the mapping dialog.</summary>
+        public LevelResolver Levels { get; }
+
+        /// <summary>Resolves a group's mapping against what the project actually has.</summary>
+        public ResolvedTarget Resolve(PlacementGroup group, PlacementOptions options)
         {
-            if (import == null)
-            {
-                throw new ArgumentNullException(nameof(import));
-            }
-
-            if (options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
-
-            PlacementResult result = new PlacementResult
-            {
-                BatchId = options.BatchId,
-                SourceFile = options.SourceFile,
-                StartedAt = DateTime.Now
-            };
-
-            using (Transaction transaction = new Transaction(_document, "Import DIALux luminaires"))
-            {
-                transaction.Start();
-
-                try
-                {
-                    foreach (PlacementGroup group in import.Groups)
-                    {
-                        PlaceGroup(group, options, result);
-                    }
-                }
-                catch (Exception)
-                {
-                    transaction.RollBack();
-                    throw;
-                }
-
-                transaction.Commit();
-            }
-
-            return result;
-        }
-
-        private void PlaceGroup(PlacementGroup group, PlacementOptions options, PlacementResult result)
-        {
-            string label = DescribeGroup(group);
+            ResolvedTarget target = new ResolvedTarget();
 
             string key = FamilyMapping.MakeKey(group.ProductBlock, group.ZMillimetres);
             if (!options.Mappings.TryGetValue(key, out FamilyMapping mapping) || !mapping.IsMapped)
             {
-                result.Skipped.Add(label + ": no family chosen.");
-                return;
+                target.Problem = "no family chosen";
+                return target;
             }
 
-            FamilyTypeEntry entry = _catalog.Find(mapping.FamilyName, mapping.TypeName);
-            if (entry == null)
+            target.Mapping = mapping;
+            target.Entry = Catalog.Find(mapping.FamilyName, mapping.TypeName);
+            if (target.Entry == null)
             {
-                result.Skipped.Add(string.Format(
+                target.Problem = string.Format(
                     CultureInfo.CurrentCulture,
-                    "{0}: family type '{1} : {2}' is not loaded in this project.",
-                    label, mapping.FamilyName, mapping.TypeName));
-                return;
+                    "family type '{0} : {1}' is not loaded in this project",
+                    mapping.FamilyName, mapping.TypeName);
+                return target;
             }
 
-            Level level = _levels.FindByName(mapping.LevelName);
-            if (level == null)
+            target.Level = Levels.FindByName(mapping.LevelName);
+            if (target.Level == null)
             {
-                result.Skipped.Add(string.Format(
+                target.Problem = string.Format(
                     CultureInfo.CurrentCulture,
-                    "{0}: level '{1}' does not exist in this project.", label, mapping.LevelName));
-                return;
+                    "level '{0}' does not exist in this project", mapping.LevelName);
+                return target;
             }
 
-            // Activating a symbol is a model change, so it belongs inside the
-            // transaction and must happen before the first instance of it.
-            if (!entry.Symbol.IsActive)
-            {
-                entry.Symbol.Activate();
-                _document.Regenerate();
-            }
+            target.ElevationFeet =
+                target.Level.Elevation + Units.MillimetresToFeet(mapping.OffsetMillimetres);
 
-            double elevationFeet = level.Elevation + Units.MillimetresToFeet(mapping.OffsetMillimetres);
-            int placed = 0;
-
-            foreach (LuminaireInstance instance in group.Instances)
-            {
-                try
-                {
-                    XYZ point = options.Transform.ToRevit(instance.X, instance.Y, elevationFeet);
-
-                    FamilyInstance created = _document.Create.NewFamilyInstance(
-                        point, entry.Symbol, level, StructuralType.NonStructural);
-
-                    if (mapping.ApplyRotation)
-                    {
-                        ApplyRotation(created, point, instance.RotationDegrees, options.Transform);
-                    }
-
-                    DialuxStamp.Write(created, instance, options.SourceFile, options.BatchId);
-
-                    result.PlacedIds.Add(created.Id);
-                    placed++;
-                }
-                catch (Autodesk.Revit.Exceptions.ApplicationException exception)
-                {
-                    result.Failures.Add(string.Format(
-                        CultureInfo.CurrentCulture,
-                        "{0} at ({1:F0}, {2:F0}): {3}",
-                        label, instance.X, instance.Y, exception.Message));
-                }
-            }
-
-            if (placed > 0)
-            {
-                result.PerGroup[label] = placed;
-            }
+            return target;
         }
 
         /// <summary>
-        /// Turns the instance about the vertical axis through its own location.
-        ///
-        /// The plan rotation from the alignment is added to the fixture's own,
-        /// so a rotated alignment keeps luminaires pointing the way they do in
-        /// DIALux rather than all facing the model's north.
+        /// Activating a symbol is a model change, so it has to happen inside the
+        /// transaction and before the first instance of it is created.
         /// </summary>
-        private void ApplyRotation(FamilyInstance instance, XYZ point,
-            double rotationDegrees, CoordinateTransform transform)
+        public void EnsureActive(FamilySymbol symbol)
         {
-            double radians = (rotationDegrees * Math.PI / 180.0) + transform.RotationRadians;
+            if (symbol != null && !symbol.IsActive)
+            {
+                symbol.Activate();
+                _document.Regenerate();
+            }
+        }
 
-            // Revit rejects a rotation of zero, and a full turn is a no-op.
+        /// <summary>Creates one luminaire. Must be called inside an open transaction.</summary>
+        public FamilyInstance Create(LuminaireInstance instance, ResolvedTarget target,
+            PlacementOptions options)
+        {
+            XYZ point = options.Transform.ToRevit(instance.X, instance.Y, target.ElevationFeet);
+
+            FamilyInstance created = _document.Create.NewFamilyInstance(
+                point, target.Entry.Symbol, target.Level, StructuralType.NonStructural);
+
+            if (target.Mapping.ApplyRotation)
+            {
+                SetRotation(created, point, DesiredRotation(instance, options));
+            }
+
+            DialuxStamp.Write(created, instance, options.SourceFile, options.BatchId);
+            return created;
+        }
+
+        /// <summary>
+        /// Moves an existing luminaire onto its new position, keeping the
+        /// element and everything attached to it.
+        /// </summary>
+        public void MoveTo(FamilyInstance existing, LuminaireInstance instance,
+            ResolvedTarget target, PlacementOptions options)
+        {
+            if (!(existing.Location is LocationPoint location))
+            {
+                return;
+            }
+
+            XYZ destination = options.Transform.ToRevit(instance.X, instance.Y, target.ElevationFeet);
+            XYZ translation = destination - location.Point;
+
+            if (!translation.IsZeroLength())
+            {
+                ElementTransformUtils.MoveElement(_document, existing.Id, translation);
+            }
+
+            if (target.Mapping.ApplyRotation)
+            {
+                // Rotate by the difference, since the element already carries
+                // whatever rotation the previous import gave it.
+                double current = (existing.Location as LocationPoint)?.Rotation ?? 0.0;
+                SetRotation(existing, destination, DesiredRotation(instance, options) - current);
+            }
+
+            DialuxStamp.Write(existing, instance, options.SourceFile, options.BatchId);
+        }
+
+        /// <summary>Swaps the family type of an existing luminaire, in place.</summary>
+        public void Retype(FamilyInstance existing, LuminaireInstance instance,
+            ResolvedTarget target, PlacementOptions options)
+        {
+            EnsureActive(target.Entry.Symbol);
+
+            if (existing.Symbol == null || existing.Symbol.Id != target.Entry.Symbol.Id)
+            {
+                existing.Symbol = target.Entry.Symbol;
+            }
+
+            MoveTo(existing, instance, target, options);
+        }
+
+        private static double DesiredRotation(LuminaireInstance instance, PlacementOptions options)
+        {
+            // The alignment's own rotation is added, so a rotated alignment keeps
+            // luminaires pointing the way they do in DIALux rather than all
+            // facing the model's north.
+            return (instance.RotationDegrees * Math.PI / 180.0) + options.Transform.RotationRadians;
+        }
+
+        private void SetRotation(FamilyInstance instance, XYZ point, double radians)
+        {
             double normalised = radians % (2.0 * Math.PI);
             if (Math.Abs(normalised) < 1e-9)
             {
@@ -174,19 +186,5 @@ namespace DialuxToRevit.Revit.Placement
                 ElementTransformUtils.RotateElement(_document, instance.Id, axis, normalised);
             }
         }
-
-        private static string DescribeGroup(PlacementGroup group)
-        {
-            return string.Format(
-                CultureInfo.CurrentCulture,
-                "{0} type {1} @ {2:F0} mm",
-                group.Storey, group.TypeIndex, group.ZMillimetres);
-        }
-
-        /// <summary>Levels in the project, for the mapping dialog.</summary>
-        public LevelResolver Levels => _levels;
-
-        /// <summary>Lighting fixture types in the project, for the mapping dialog.</summary>
-        public FamilyCatalog Catalog => _catalog;
     }
 }

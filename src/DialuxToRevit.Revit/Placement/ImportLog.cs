@@ -30,11 +30,16 @@ namespace DialuxToRevit.Revit.Placement
 
             string line = string.Format(
                 CultureInfo.InvariantCulture,
-                "{0:yyyy-MM-dd HH:mm:ss}\tbatch={1}\tsource={2}\tplaced={3}\tskipped={4}\tfailed={5}\tstatus={6}",
+                "{0:yyyy-MM-dd HH:mm:ss}\tbatch={1}\tsource={2}\tplaced={3}\tdeleted={4}" +
+                "\tmoved={5}\tretyped={6}\tunchanged={7}\tskipped={8}\tfailed={9}\tstatus={10}",
                 result.StartedAt,
                 result.BatchId,
                 Path.GetFileName(result.SourceFile ?? string.Empty),
                 result.PlacedCount,
+                result.DeletedCount,
+                result.MovedCount,
+                result.RetypedCount,
+                result.UnchangedCount,
                 result.Skipped.Count,
                 result.Failures.Count,
                 result.Succeeded ? "ok" : "errors");

@@ -35,14 +35,31 @@ namespace DialuxToRevit.Revit.Placement
 
         public int PlacedCount => PlacedIds.Count;
 
+        public int DeletedCount { get; set; }
+
+        public int MovedCount { get; set; }
+
+        public int RetypedCount { get; set; }
+
+        public int UnchangedCount { get; set; }
+
         public bool Succeeded => Failures.Count == 0;
 
         public string Summarise()
         {
             List<string> lines = new List<string>
             {
-                string.Format(CultureInfo.CurrentCulture, "Placed {0} luminaires.", PlacedCount)
+                string.Format(
+                    CultureInfo.CurrentCulture,
+                    "Placed {0}, deleted {1}, moved {2}, changed type on {3}, left {4} unchanged.",
+                    PlacedCount, DeletedCount, MovedCount, RetypedCount, UnchangedCount)
             };
+
+            if (PerGroup.Count > 0)
+            {
+                lines.Add(string.Empty);
+                lines.Add("Placed by group:");
+            }
 
             foreach (KeyValuePair<string, int> group in PerGroup.OrderBy(p => p.Key))
             {

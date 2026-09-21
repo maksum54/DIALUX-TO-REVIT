@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Copy this file to:
+  Install by copying this file and the DLLs beside it into:
     %APPDATA%\Autodesk\Revit\Addins\2025\
 
-  Assembly must be an absolute path to the built DLL. Revit has to be closed
-  and reopened for a manifest change to take effect; closing the document is
-  not enough.
+  The Assembly path below is relative to this manifest, so keeping the manifest
+  and the DLLs together is all that is needed. An absolute path also works if
+  you would rather keep the DLLs somewhere else.
+
+  Revit must be closed and reopened for a manifest change to take effect;
+  closing the document is not enough.
 -->
 <RevitAddIns>
   <AddIn Type="Application">
     <Name>DIALux to Revit</Name>
-    <Assembly>C:\Path\To\DialuxToRevit.Addin.dll</Assembly>
+    <Assembly>DialuxToRevit.Addin.dll</Assembly>
     <AddInId>b4e9a71c-5d38-4a62-9f07-8e1c6d3b5a92</AddInId>
     <FullClassName>DialuxToRevit.Addin.App</FullClassName>
     <VendorId>DLXR</VendorId>

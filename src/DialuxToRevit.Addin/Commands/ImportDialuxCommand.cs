@@ -12,6 +12,7 @@ using DialuxToRevit.Addin.ViewModels;
 using DialuxToRevit.Addin.Views;
 using DialuxToRevit.Core.Model;
 using DialuxToRevit.Core.Parsing;
+using DialuxToRevit.Revit.Diff;
 using DialuxToRevit.Revit.Geometry;
 using DialuxToRevit.Revit.Placement;
 
@@ -102,14 +103,37 @@ namespace DialuxToRevit.Addin.Commands
                 options.Mappings[pair.Key] = pair.Value;
             }
 
+            // A first import and a re-import take the same path: the diff of an
+            // empty model is simply every luminaire as an addition. One code
+            // path means the two cannot drift apart.
+            DiffOptions diffOptions = new DiffOptions();
+            ImportDiff diff = DiffEngine.Compute(document, import, options, diffOptions);
+
+            if (!diff.HasChanges)
+            {
+                TaskDialog.Show(
+                    "Import DIALux luminaires",
+                    "The model already matches this export. Nothing to change.");
+                return Result.Cancelled;
+            }
+
+            // The confirmation is skipped only when the model holds nothing from
+            // this export and nothing needs attention -- there is no decision to
+            // make, and the mapping dialog already said how many would be placed.
+            bool needsConfirmation = !diff.IsFirstImport || diff.Cautions.Any();
+            if (needsConfirmation && !Confirm(commandData, diff, diffOptions))
+            {
+                return Result.Cancelled;
+            }
+
             PlacementResult result;
             try
             {
-                result = placer.Place(import, options);
+                result = new DiffApplier(document, placer).Apply(diff, options, diffOptions);
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException exception)
             {
-                message = "Nothing was placed: " + exception.Message;
+                message = "Nothing was changed: " + exception.Message;
                 return Result.Failed;
             }
 
@@ -117,6 +141,18 @@ namespace DialuxToRevit.Addin.Commands
             ShowSummary(uiDocument, result);
 
             return result.Succeeded ? Result.Succeeded : Result.Failed;
+        }
+
+        private static bool Confirm(ExternalCommandData commandData, ImportDiff diff,
+            DiffOptions diffOptions)
+        {
+            DiffWindow window = new DiffWindow(new DiffViewModel(diff, diffOptions));
+            new WindowInteropHelper(window)
+            {
+                Owner = commandData.Application.MainWindowHandle
+            };
+
+            return window.ShowDialog() == true;
         }
 
         private static string AskForExport()
@@ -135,7 +171,10 @@ namespace DialuxToRevit.Addin.Commands
             TaskDialog dialog = new TaskDialog("Import DIALux luminaires")
             {
                 MainInstruction = string.Format(
-                    CultureInfo.CurrentCulture, "Placed {0} luminaires.", result.PlacedCount),
+                    CultureInfo.CurrentCulture,
+                    "{0} placed, {1} deleted, {2} moved, {3} retyped.",
+                    result.PlacedCount, result.DeletedCount,
+                    result.MovedCount, result.RetypedCount),
                 MainContent = result.Summarise()
             };
 

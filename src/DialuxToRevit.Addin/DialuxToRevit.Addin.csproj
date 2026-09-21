@@ -11,14 +11,33 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>DialuxToRevit.Addin</AssemblyName>
     <RootNamespace>DialuxToRevit.Addin</RootNamespace>
-    <Platforms>x64</Platforms>
   </PropertyGroup>
 
+  <!--
+    Revit 2025 runs on .NET 8. The API assemblies come from NuGet reference
+    packages by default, so the solution builds on a machine (or a CI runner)
+    with no Revit installed. ExcludeAssets="runtime" keeps them out of the
+    output: Revit loads its own, and shipping a second copy causes assembly
+    identity conflicts at run time.
+
+    2025.0.2 is the earliest 2025 API on purpose. Compiling against the base
+    release keeps the add-in loadable on every Revit 2025 update.
+
+    To build against an installed Revit instead:
+      dotnet build -p:UseLocalRevitApi=true
+      dotnet build -p:UseLocalRevitApi=true -p:RevitApiDir="D:\Revit 2025\"
+  -->
   <PropertyGroup>
+    <UseLocalRevitApi Condition="'$(UseLocalRevitApi)' == ''">false</UseLocalRevitApi>
     <RevitApiDir Condition="'$(RevitApiDir)' == ''">C:\Program Files\Autodesk\Revit 2025\</RevitApiDir>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(UseLocalRevitApi)' != 'true'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.0.2" ExcludeAssets="runtime" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.0.2" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseLocalRevitApi)' == 'true'">
     <Reference Include="RevitAPI">
       <HintPath>$(RevitApiDir)RevitAPI.dll</HintPath>
       <Private>false</Private>

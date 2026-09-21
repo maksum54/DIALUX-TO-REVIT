@@ -1,0 +1,89 @@
+<Window x:Class="DialuxToRevit.Addin.Views.DiffWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Apply changes"
+        Height="520" Width="720"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        ShowInTaskbar="False">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="{Binding Headline}"
+                   FontSize="14" FontWeight="SemiBold"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,12" />
+
+        <ItemsControl Grid.Row="1" ItemsSource="{Binding Lines}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Grid Margin="0,2" Opacity="{Binding Opacity}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="60" />
+                            <ColumnDefinition Width="110" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding Count}"
+                                   FontWeight="Bold" HorizontalAlignment="Right"
+                                   Margin="0,0,12,0" />
+                        <TextBlock Grid.Column="1" Text="{Binding Action}" />
+                        <TextBlock Grid.Column="2" Text="{Binding Explanation}"
+                                   TextWrapping="Wrap" Opacity="0.75" />
+                    </Grid>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Grid Grid.Row="2" Margin="0,16,0,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <GroupBox Grid.Row="0"
+                      Header="{Binding CautionHeading}"
+                      Visibility="{Binding HasCautions, Converter={StaticResource BoolToVisibility}}">
+                <DockPanel>
+                    <CheckBox DockPanel.Dock="Bottom"
+                              Margin="4,8,4,4"
+                              IsChecked="{Binding DeleteCircuited}"
+                              Content="Delete these as well" />
+                    <TextBlock DockPanel.Dock="Bottom"
+                               Margin="4,4,4,0"
+                               Text="{Binding CautionAction}"
+                               FontStyle="Italic" Opacity="0.75" />
+                    <ListBox ItemsSource="{Binding Cautions}" BorderThickness="0" />
+                </DockPanel>
+            </GroupBox>
+
+            <Expander Grid.Row="1" Margin="0,8,0,0"
+                      Header="Groups with no family chosen"
+                      Visibility="{Binding HasSkipped, Converter={StaticResource BoolToVisibility}}">
+                <ListBox ItemsSource="{Binding SkippedGroups}"
+                         MaxHeight="90" BorderThickness="0" />
+            </Expander>
+        </Grid>
+
+        <DockPanel Grid.Row="3" Margin="0,16,0,0">
+            <Button DockPanel.Dock="Right" Content="Cancel"
+                    IsCancel="True" Padding="16,4" MinWidth="90" />
+            <Button DockPanel.Dock="Right" Content="Apply"
+                    Click="OnApplyClicked" IsDefault="True"
+                    Padding="16,4" MinWidth="90" Margin="0,0,8,0"
+                    IsEnabled="{Binding HasChanges}" />
+            <TextBlock Text="Nothing is changed until you press Apply."
+                       VerticalAlignment="Center" Opacity="0.7" />
+        </DockPanel>
+    </Grid>
+</Window>

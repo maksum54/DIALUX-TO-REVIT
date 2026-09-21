@@ -1,0 +1,108 @@
+name: build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # The DXF reading rules have no Revit dependency, so they are tested on Linux
+  # and do not wait on the Windows build.
+  rules:
+    name: DXF rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Self-contained tests
+        run: python3 tests/test_synthetic.py
+
+      # Skips when no sample export is present, which is the normal case here:
+      # sample exports are project data and this repository is public.
+      - name: Pinned regression case
+        run: python3 tests/test_dxf_probe.py
+
+  addin:
+    name: Add-in
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # The Revit API comes from NuGet reference packages, so no Revit install
+      # is needed on the runner.
+      - name: Restore
+        run: dotnet restore DialuxToRevit.sln
+
+      - name: Build
+        run: dotnet build DialuxToRevit.sln -c Release --no-restore
+
+      - name: Collect the add-in
+        shell: pwsh
+        run: |
+          $out = 'src/DialuxToRevit.Addin/bin/Release/net8.0-windows'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+          # Only our own assemblies. The Revit API references are excluded from
+          # the output on purpose: Revit loads its own copies, and a second set
+          # beside the add-in causes assembly identity conflicts at run time.
+          Copy-Item "$out/DialuxToRevit.Core.dll"  dist/
+          Copy-Item "$out/DialuxToRevit.Revit.dll" dist/
+          Copy-Item "$out/DialuxToRevit.Addin.dll" dist/
+          Copy-Item 'src/DialuxToRevit.Addin/DialuxToRevit.addin' dist/
+
+          Get-ChildItem dist | Select-Object Name, Length
+
+          if (Test-Path "$out/RevitAPI.dll") {
+            throw "RevitAPI.dll was copied to the output; it must not ship with the add-in."
+          }
+
+      - name: Installation note
+        shell: pwsh
+        run: |
+          @'
+          DIALux to Revit - Revit 2025
+
+          Copy every file in this folder into:
+            %APPDATA%\Autodesk\Revit\Addins\2025\
+
+          Then start Revit. The ribbon gains a DIALux tab with an Import DXF
+          button.
+
+          The Assembly path in DialuxToRevit.addin is relative to the manifest,
+          so keeping these files together is all that is needed. Revit must be
+          closed and reopened for a new manifest to be picked up; closing the
+          document is not enough.
+          '@ | Set-Content dist/INSTALL.txt -Encoding utf8
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DialuxToRevit-addin
+          path: dist/
+          if-no-files-found: error
+
+      # A tag publishes the same files as a release, so a specific build can be
+      # handed to someone without them needing a GitHub account to download it.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Compress-Archive -Path dist/* -DestinationPath DialuxToRevit-${{ github.ref_name }}.zip
+          gh release create ${{ github.ref_name }} `
+            "DialuxToRevit-${{ github.ref_name }}.zip" `
+            --title "DIALux to Revit ${{ github.ref_name }}" `
+            --notes "Revit 2025 add-in. Download the zip, unpack it into %APPDATA%\Autodesk\Revit\Addins\2025\ and restart Revit."
