@@ -11,7 +11,7 @@ product type, and with re-imports diffed against what is already in the model.
 | 1 | Read the DXF, deduplicate, parse the luminaire list, validate | done |
 | 2 | Mapping UI and placement into Revit | done |
 | 3 | Levels and offsets from Z, family suggestions from block size | done |
-| 4 | The re-import diff | stamp written, diff not started |
+| 4 | The re-import diff | done |
 | 5 | Two-point alignment | transform built, not yet wired to the UI |
 
 Placement currently aligns origin to origin. The two-point and manual
@@ -29,32 +29,50 @@ src/DialuxToRevit.Addin/  Ribbon, the import command, the WPF mapping dialog.
 tools/dxf_probe.py        Reference implementation of the same rules, runnable
                           from the command line. Doubles as the oracle the C#
                           port is checked against.
+tools/diff_probe.py       The same for the re-import matching rules, so they can
+                          be exercised without Revit.
 tests/                    Self-contained tests, plus a pinned regression case.
 docs/DXF-FINDINGS.md      What a real DIALux export actually contains.
 docs/DESIGN.md            The design, including the phases not yet built.
 ```
 
-## Building and installing
+## Getting the add-in
 
-Needs Revit 2025 installed for the API assemblies, and the .NET 8 SDK.
+Every push builds it. Open the newest green run under
+[Actions](../../actions), and download the **DialuxToRevit-addin** artifact.
+Tagging a commit `v*` publishes the same files as a release instead.
+
+To install, unpack everything into:
+
+```
+%APPDATA%\Autodesk\Revit\Addins\2025\
+```
+
+and restart Revit. The `<Assembly>` path in the manifest is relative to the
+manifest itself, so keeping the files together is all that is needed. Revit
+needs a full restart to pick up a new manifest; closing the document is not
+enough.
+
+## Building it yourself
+
+Needs only the .NET 8 SDK. The Revit API comes from NuGet reference packages,
+so Revit does not have to be installed:
 
 ```
 dotnet build DialuxToRevit.sln -c Release
 ```
 
-If Revit is not on the default path, point the build at it:
+To build against an installed Revit instead:
 
 ```
-dotnet build DialuxToRevit.sln -c Release -p:RevitApiDir="D:\Revit 2025\"
+dotnet build DialuxToRevit.sln -c Release -p:UseLocalRevitApi=true
+dotnet build DialuxToRevit.sln -c Release -p:UseLocalRevitApi=true -p:RevitApiDir="D:\Revit 2025\"
 ```
 
-Then edit `src/DialuxToRevit.Addin/DialuxToRevit.addin` so `<Assembly>` is the
-absolute path to the built `DialuxToRevit.Addin.dll`, copy that manifest to
-`%APPDATA%\Autodesk\Revit\Addins\2025\`, and restart Revit -- a manifest
-change needs a full restart, not just closing the document.
-
-`DialuxToRevit.Core` has no Revit reference, so it builds and its rules can be
-exercised on a machine without Revit.
+The API is pinned to 2025.0.2, the earliest 2025 release, so the add-in loads
+on every Revit 2025 update. The Revit assemblies are never copied into the
+output -- Revit loads its own, and a second copy beside the add-in causes
+assembly identity conflicts at run time. CI fails the build if one appears.
 
 ## Using it
 
@@ -67,6 +85,22 @@ from Revit; the add-in never invents one.
 Choices can be saved as a preset and reloaded on the next revision. Presets are
 keyed by DIALux block id and mounting height rather than by layer name, so they
 survive a layer being renamed or the LUM numbering changing between revisions.
+
+Re-importing the same export compares it against what is already in the model
+and shows what would change before changing anything:
+
+```
+  12  Place        In the export but not yet in the model.
+   3  Delete       In the model but no longer in the export.
+   6  Move         Same luminaire, shifted. The element is kept, so its circuit and tags survive.
+   1  Change type  Same position, different product. The type is swapped in place.
+  45  Unchanged    Left alone.
+```
+
+Luminaires that are wired into a circuit or sit inside a model group are listed
+separately and kept by default. Deleting one takes a deliberate tick, because
+Revit removes a circuited fixture without complaint and the panel schedule
+changes silently.
 
 Every run appends a line to `DialuxToRevit-import-log.txt` beside the model,
 recording the timestamp, batch, source file and counts.
@@ -96,8 +130,9 @@ Placement groups  (building, floor, type, Z)
 ## Tests
 
 ```bash
-python3 tests/test_synthetic.py    # no sample file needed
-python3 tests/test_dxf_probe.py    # needs a sample export
+python3 tests/test_synthetic.py    # DXF reading rules, no sample file needed
+python3 tests/test_diff.py         # re-import matching rules
+python3 tests/test_dxf_probe.py    # pinned regression, needs a sample export
 ```
 
 The regression case needs a DIALux export that this repository does not ship,

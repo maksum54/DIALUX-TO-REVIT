@@ -142,7 +142,7 @@ Families start unhosted. Because Z is read from the export, unhosted placement
 is already at the right elevation, so hosting to ceilings is a later refinement
 rather than a prerequisite.
 
-## Re-import (stamp built, diff not yet)
+## Re-import (built)
 
 Every placed instance is stamped via Extensible Storage, which keeps the
 information with the element without adding project parameters. The stamp is
@@ -158,21 +158,90 @@ DLX_Key          hash(BlockId + X + Y + Z, rounded to 1 mm)
 DLX_BatchId      the import that created it
 ```
 
-On re-import, existing stamped instances are diffed against the new read:
+On re-import, existing stamped instances are diffed against the new read.
+Matching runs in four passes, and the order is the whole point:
 
-| Case | Action |
-|---|---|
-| Key in both | Leave alone; update the type if the mapping changed |
-| Key only in the export | Place |
-| Key only in the model | Delete |
-| Same product, moved less than the threshold | Move |
-| Same position, different product | Change type in place |
+| Pass | Test | Action |
+|---|---|---|
+| 1 | Identical stamp key | Unchanged |
+| 2 | Same position, different product | Change type in place |
+| 3 | Same product within the move threshold | Move |
+| 4 | Anything left | Add, or Delete |
+
+Pass 2 runs before pass 3 deliberately. A swapped product sitting exactly where
+the old one was must not be matched to a like-for-like fixture further away, or
+one element is needlessly destroyed and another needlessly moved.
 
 Move and change-in-place matter more than they look. Deleting and recreating a
 luminaire that merely shifted loses its `ElementId`, and with it the circuit,
 tags and schedule rows attached to it. Revit deletes a circuited fixture without
 complaint, and the damage to a panel schedule is silent.
 
-The diff is shown before it is applied, with a count per case and an explicit
-warning when something due to be deleted is circuited. A Replace All mode stays
-available for when the export has changed wholesale.
+Positions are compared in plan only. Elevation comes from the level and offset
+the user chose, not from the export, so comparing in 3D would make a change of
+level read as every luminaire having moved.
+
+Matching within a pass is greedy nearest-first, and an element already claimed
+cannot be claimed again. With luminaires on a regular grid a smarter assignment
+would cost more than it is worth: a wrong pairing between two identical fixtures
+a metre apart produces the same model either way.
+
+Existing luminaires are found by the file *name* of the export rather than its
+full path, so moving the DXF to another folder between revisions does not
+orphan everything placed from it.
+
+### Before anything changes
+
+The diff is shown first, with a count per case and the luminaires that need
+attention listed separately:
+
+```
+  12  Place        In the export but not yet in the model.
+   3  Delete       In the model but no longer in the export.
+   6  Move         Same luminaire, shifted. The element is kept, so its circuit and tags survive.
+   1  Change type  Same position, different product. The type is swapped in place.
+  45  Unchanged    Left alone.
+```
+
+A luminaire that is wired into a circuit, or that sits inside a model group, is
+kept by default and reported in the summary. Deleting one takes a deliberate
+tick. A Replace All mode stays available for when the export has changed
+wholesale, at the cost of every circuit and tag on the old fixtures.
+
+The confirmation is skipped only when the model holds nothing from this export
+and nothing needs attention: there is no decision to make, and the mapping
+dialog has already said how many will be placed.
+
+A first import and a re-import take the same code path -- the diff of an empty
+model is simply every luminaire as an addition -- so the two cannot drift
+apart.
+
+### Applying
+
+Everything happens in one transaction, deletions first so that a luminaire being
+replaced never briefly coexists with the one taking its place. A luminaire Revit
+refuses is recorded as a failure and the rest still go through; an unexpected
+error rolls the whole thing back rather than leaving a model nobody can tell
+from a finished one.
+
+Every run appends a line to an import log beside the model, with the timestamp,
+the batch, the source file and a count per action.
+
+## Verifying without Revit
+
+`Core` has no Revit reference, so the reading rules are exercised directly.
+The matching rules cannot be -- they speak in `Document` and `ElementId` -- so
+`tools/diff_probe.py` mirrors the four passes and `tests/test_diff.py` pins the
+behaviour that protects element identity. It proves the algorithm, not the C#
+port of it; the compiler on CI is what checks the port.
+
+## Building
+
+The Revit API comes from NuGet reference packages, pinned to 2025.0.2. Building
+against the earliest 2025 release keeps the add-in loadable on every Revit 2025
+update, and it means the solution builds on a machine with no Revit installed --
+including a CI runner. `-p:UseLocalRevitApi=true` switches to an installed copy.
+
+The Revit assemblies must never reach the output: Revit loads its own, and a
+second set beside the add-in causes assembly identity conflicts at run time. CI
+fails the build if one appears.
