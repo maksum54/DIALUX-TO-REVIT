@@ -95,6 +95,48 @@ def split_entities(pairs):
     return entities
 
 
+def read_block_sizes(pairs):
+    """
+    Bounding box per block definition, in block units.
+
+    Block geometry is polyface mesh vertices; DIALux stores it in metres and
+    scales it by 1000 at insertion, so the size in millimetres is the box here
+    multiplied by the INSERT scale. Useful for suggesting a Revit family and for
+    warning when the chosen one is a very different size.
+    """
+    body = section(pairs, "BLOCKS")
+    sizes, name, verts, vx = {}, None, [], {}
+    collecting = False
+
+    def close(current, points):
+        if current and points:
+            sizes[current] = tuple(
+                max(pt[i] for pt in points) - min(pt[i] for pt in points)
+                for i in range(3)
+            )
+
+    i = 0
+    while i < len(body):
+        code, value = body[i]
+        if code == 0 and value == "BLOCK":
+            close(name, verts)
+            name, verts, collecting = "?", [], False
+        elif code == 2 and name == "?":
+            name = value
+        elif code == 0 and value == "VERTEX":
+            collecting, vx = True, {}
+        elif code == 0:
+            collecting = False
+        elif collecting and code in (10, 20, 30):
+            vx[code] = float(value)
+            if len(vx) == 3:
+                verts.append((vx[10], vx[20], vx[30]))
+                vx = {}
+        i += 1
+    close(name, verts)
+    return sizes
+
+
 def first(entity, code, default=None):
     for c, v in entity:
         if c == code:
@@ -231,7 +273,7 @@ def quantize(value):
     return int(round(float(value) / POSITION_QUANTUM_MM))
 
 
-def collect_fixtures(entities, warnings):
+def collect_fixtures(entities, warnings, block_sizes=None):
     """
     Fold INSERTs down to physical luminaires.
 
@@ -251,6 +293,7 @@ def collect_fixtures(entities, warnings):
         x, y, z = (float(first(ent, c, "0")) for c in (10, 20, 30))
         rot = float(first(ent, 50, "0") or 0)
         block = first(ent, 2, "")
+        scale = tuple(float(first(ent, c, "1") or 1) for c in (41, 42, 43))
         key = (layer, quantize(x), quantize(y), quantize(z))
         buckets[key].append(
             {
@@ -260,7 +303,7 @@ def collect_fixtures(entities, warnings):
                 "type_index": int(m.group(3)),
                 "block": block,
                 "block_base": block_base(block),
-                "x": x, "y": y, "z": z, "rotation": rot,
+                "x": x, "y": y, "z": z, "rotation": rot, "scale": scale,
             }
         )
 
@@ -269,6 +312,7 @@ def collect_fixtures(entities, warnings):
         parts.sort(key=lambda p: p["block"])
         head = dict(parts[0])
         head["part_blocks"] = [p["block"] for p in parts]
+        head["size_mm"] = fixture_size(parts, block_sizes)
 
         rotations = {round(p["rotation"], 3) for p in parts}
         if len(rotations) > 1:
@@ -284,6 +328,27 @@ def collect_fixtures(entities, warnings):
                  f"{head['z']:.1f}) mix products ({', '.join(sorted(bases))}).")
         fixtures.append(head)
     return fixtures
+
+
+def fixture_size(parts, block_sizes):
+    """
+    Overall size of a luminaire in millimetres.
+
+    A luminaire split across several blocks is measured by the largest of them
+    in each axis, since the housing is what defines the fixture footprint.
+    """
+    if not block_sizes:
+        return None
+    dims = [0.0, 0.0, 0.0]
+    found = False
+    for part in parts:
+        box = block_sizes.get(part["block"])
+        if not box:
+            continue
+        found = True
+        for i in range(3):
+            dims[i] = max(dims[i], box[i] * part["scale"][i])
+    return tuple(round(d, 1) for d in dims) if found else None
 
 
 def cross_check_labels(entities, fixtures, warnings):
@@ -366,6 +431,7 @@ def build_groups(fixtures, warnings):
                 "layer": items[0]["layer"],
                 "block_base": items[0]["block_base"],
                 "rotations": sorted({round(i["rotation"], 2) for i in items}),
+                "size_mm": items[0].get("size_mm"),
             }
         )
     return out
@@ -397,14 +463,33 @@ def probe(path):
         if grid:
             title, types = parse_luminaire_list(grid)
             break
+        warn(warnings, "Warning", "TABLE_UNREADABLE",
+             "the luminaire list table could not be read; types will have no "
+             "description.")
     building_name, storey_name = split_title(title)
 
-    fixtures = collect_fixtures(entities, warnings)
+    block_sizes = read_block_sizes(pairs)
+    fixtures = collect_fixtures(entities, warnings, block_sizes)
     groups = build_groups(fixtures, warnings)
     matched, mismatched = cross_check_labels(entities, fixtures, warnings)
 
     # Quantity in the luminaire list must equal the deduplicated fixture count.
     per_type = Counter(f["type_index"] for f in fixtures)
+
+    # A type drawn but not listed, or listed but not drawn, means the user would
+    # be mapping something they cannot see the description of -- or mapping a
+    # row that places nothing.
+    for idx in sorted(per_type):
+        if idx not in types:
+            warn(warnings, "Warning", "TYPE_NOT_IN_LIST",
+                 f"type {idx} is drawn but has no luminaire list row; it will "
+                 f"show no description.")
+    for idx in sorted(types):
+        if idx not in per_type:
+            warn(warnings, "Warning", "TYPE_NOT_DRAWN",
+                 f"type {idx} is listed but no luminaire of it was found in the "
+                 f"geometry.")
+
     for idx, row in sorted(types.items()):
         if not row.get("Product"):
             warn(warnings, "Warning", "TYPE_UNNAMED",
@@ -446,11 +531,14 @@ def report(r):
 
     print("\nPlacement groups  (building, floor, type, Z)")
     print(f"  {'BLD':>3} {'FL':>3} {'TYPE':>4} {'Z (mm)':>8} {'QTY':>4}  "
-          f"{'BLOCK':<12} ROTATIONS")
+          f"{'BLOCK':<12} {'SIZE (mm)':<18} ROTATIONS")
     for g in r["groups"]:
         rots = ", ".join(f"{x:g}" for x in g["rotations"])
+        size = g.get("size_mm")
+        size_text = f"{size[0]:.0f} x {size[1]:.0f} x {size[2]:.0f}" if size else "-"
         print(f"  {g['building']:>3} {g['floor']:>3} {g['type_index']:>4} "
-              f"{g['z_mm']:>8.1f} {g['count']:>4}  {g['block_base']:<12} {rots}")
+              f"{g['z_mm']:>8.1f} {g['count']:>4}  {g['block_base']:<12} "
+              f"{size_text:<18} {rots}")
 
     if r["warnings"]:
         print(f"\nWarnings ({len(r['warnings'])})")

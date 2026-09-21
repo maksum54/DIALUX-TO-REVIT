@@ -1,0 +1,160 @@
+<Window x:Class="DialuxToRevit.Addin.Views.MappingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Import DIALux luminaires"
+        Height="640" Width="1180"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="False">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </Window.Resources>
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="{Binding SourceSummary}"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,8" />
+
+        <DataGrid Grid.Row="1"
+                  ItemsSource="{Binding Rows}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  RowHeaderWidth="0">
+
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasSizeWarning}" Value="True">
+                            <Setter Property="ToolTip" Value="{Binding SizeWarning}" />
+                            <Setter Property="Background" Value="#FFF6E5" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Storey" Binding="{Binding Storey}"
+                                    IsReadOnly="True" Width="Auto" />
+                <DataGridTextColumn Header="Type" Binding="{Binding TypeIndex}"
+                                    IsReadOnly="True" Width="Auto" />
+                <DataGridTextColumn Header="Qty" Binding="{Binding Quantity}"
+                                    IsReadOnly="True" Width="Auto" />
+                <DataGridTextColumn Header="Z (mm)" Binding="{Binding MountingHeight}"
+                                    IsReadOnly="True" Width="Auto" />
+
+                <DataGridTextColumn Header="Description" Binding="{Binding Description}"
+                                    IsReadOnly="True" Width="*">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="ToolTip" Value="{Binding Description}" />
+                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
+
+                <DataGridTextColumn Header="Size (mm)" Binding="{Binding Size}"
+                                    IsReadOnly="True" Width="Auto" />
+                <DataGridTextColumn Header="Rotations" Binding="{Binding Rotations}"
+                                    IsReadOnly="True" Width="Auto" />
+
+                <!-- Family names come from the project. The list is whatever is
+                     loaded in this model; nothing is invented here. -->
+                <DataGridComboBoxColumn Header="Revit family : type"
+                                        Width="260"
+                                        SelectedItemBinding="{Binding FamilyType,
+                                            UpdateSourceTrigger=PropertyChanged}"
+                                        DisplayMemberPath="DisplayName">
+                    <DataGridComboBoxColumn.ElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding FamilyTypes}" />
+                        </Style>
+                    </DataGridComboBoxColumn.ElementStyle>
+                    <DataGridComboBoxColumn.EditingElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding FamilyTypes}" />
+                            <Setter Property="IsEditable" Value="False" />
+                        </Style>
+                    </DataGridComboBoxColumn.EditingElementStyle>
+                </DataGridComboBoxColumn>
+
+                <DataGridComboBoxColumn Header="Level"
+                                        Width="120"
+                                        SelectedItemBinding="{Binding Level,
+                                            UpdateSourceTrigger=PropertyChanged}"
+                                        DisplayMemberPath="Name">
+                    <DataGridComboBoxColumn.ElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding Levels}" />
+                        </Style>
+                    </DataGridComboBoxColumn.ElementStyle>
+                    <DataGridComboBoxColumn.EditingElementStyle>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="ItemsSource" Value="{Binding Levels}" />
+                        </Style>
+                    </DataGridComboBoxColumn.EditingElementStyle>
+                </DataGridComboBoxColumn>
+
+                <DataGridTextColumn Header="Offset (mm)" Width="90"
+                                    Binding="{Binding OffsetMillimetres,
+                                        StringFormat=F0,
+                                        UpdateSourceTrigger=LostFocus}" />
+
+                <DataGridCheckBoxColumn Header="Rotate" Width="Auto"
+                                        Binding="{Binding ApplyRotation,
+                                            UpdateSourceTrigger=PropertyChanged}" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <Expander Grid.Row="2"
+                  Margin="0,8,0,0"
+                  Header="Warnings"
+                  IsExpanded="{Binding HasErrors, Mode=OneTime}"
+                  Visibility="{Binding HasWarnings, Converter={StaticResource BoolToVisibility}}">
+            <ListBox ItemsSource="{Binding Warnings}"
+                     MaxHeight="120"
+                     BorderThickness="0">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock TextWrapping="Wrap">
+                            <Run Text="{Binding Severity, Mode=OneWay}" FontWeight="Bold" />
+                            <Run Text=" " />
+                            <Run Text="{Binding Message, Mode=OneWay}" />
+                        </TextBlock>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Expander>
+
+        <DockPanel Grid.Row="3" Margin="0,12,0,0">
+            <Button DockPanel.Dock="Left" Content="Load preset..."
+                    Command="{Binding LoadPresetCommand}"
+                    Padding="12,4" Margin="0,0,8,0" />
+            <Button DockPanel.Dock="Left" Content="Save preset..."
+                    Command="{Binding SavePresetCommand}"
+                    Padding="12,4" Margin="0,0,16,0" />
+
+            <Button DockPanel.Dock="Right" Content="Cancel"
+                    IsCancel="True" Padding="16,4" MinWidth="90" />
+            <Button DockPanel.Dock="Right" x:Name="PlaceButton"
+                    Content="Place" Click="OnPlaceClicked"
+                    IsDefault="True" Padding="16,4" MinWidth="90" Margin="0,0,8,0"
+                    IsEnabled="{Binding CanPlace}" />
+
+            <TextBlock Text="{Binding StatusMessage}"
+                       VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"
+                       Margin="8,0" />
+        </DockPanel>
+    </Grid>
+</Window>

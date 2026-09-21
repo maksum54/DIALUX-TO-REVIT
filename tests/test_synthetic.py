@@ -127,6 +127,18 @@ def test_non_luminaire_layers_ignored(tmp, f):
     f.check("only luminaire INSERTs counted", r["insert_count"], 1)
 
 
+def test_type_drawn_without_a_list_row(tmp, f):
+    """A type with no luminaire list row would map with no description shown."""
+    path = write_dxf(os.path.join(tmp, "nolist.dxf"), [
+        ("DLX_BLD1_FL0_LUM 7", "12345_2_0", 1000.0, 2000.0, 2400.0, 0.0),
+    ])
+    r = probe(path)
+    codes = {w["code"] for w in r["warnings"]}
+    f.check("unlisted type flagged", "TYPE_NOT_IN_LIST" in codes, True)
+    f.check("still placed", r["fixture_count"], 1)
+    f.check("type index read", r["fixtures"][0]["type_index"], 7)
+
+
 def test_insunits_warning(tmp, f):
     """DIALux declares inches while writing millimetres; that must be flagged."""
     path = write_dxf(os.path.join(tmp, "units.dxf"), [

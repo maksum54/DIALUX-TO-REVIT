@@ -45,6 +45,12 @@ namespace DialuxToRevit.Core.Model
         /// </summary>
         public double RotationDegrees { get; set; }
 
+        /// <summary>
+        /// Overall size in millimetres from the block geometry, or an empty
+        /// value when the blocks carried none.
+        /// </summary>
+        public BlockSize Size { get; set; }
+
         public override string ToString()
         {
             return string.Format(

@@ -23,10 +23,15 @@ the reading rules are what they are. This document covers the shape of the add-i
 ```
 DialuxToRevit.Core      netstandard2.0. Reading, deduplication, validation.
                         No Revit reference, so it is testable without Revit.
-DialuxToRevit.Revit     net8.0-windows. Placement, the storage stamp, the diff.
-DialuxToRevit.UI        net8.0-windows. WPF mapping dialog.
-DialuxToRevit.Addin     net8.0-windows. Ribbon, IExternalCommand, the manifest.
+DialuxToRevit.Revit     net8.0-windows. Placement, levels, the family catalog,
+                        coordinate transforms, the storage stamp, the log.
+DialuxToRevit.Addin     net8.0-windows. Ribbon, IExternalCommand, the manifest,
+                        and the WPF mapping dialog.
 ```
+
+The dialog lives in the add-in rather than an assembly of its own: it is one
+window used by one command, so a separate UI assembly would add a load-time
+dependency and buy nothing.
 
 Keeping `Core` free of the Revit API is the point of the split: the rules that
 are most likely to be wrong are the parsing rules, and they can be exercised in
@@ -74,35 +79,43 @@ than to find it in a panel schedule weeks later.
 
 An error blocks placement. Warnings are shown and can be accepted.
 
-## Mapping UI (phase 2)
+## Mapping UI (built)
 
-One row per placement group, keyed by storey, type and mounting height:
+One row per placement group, keyed by storey, type and mounting height. The
+reference export produces five rows:
 
-| Bld | Storey | Type | Qty | Z | Description | Size | Family : Type | Level | Offset |
+| Storey | Type | Qty | Z | Description | Size | Family : type | Level | Offset | Rotate |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | OFFICE GF | 1 | 21 | 2400 | PARAGON / RRDA170L12_65K - 1123 lm - 12.1 W | 100x100 | *dropdown* | GF | 2400 |
-| 1 | OFFICE GF | 1 | 1 | 3000 | PARAGON / RRDA170L12_65K - 1123 lm - 12.1 W | 100x100 | *dropdown* | GF | 3000 |
-| 1 | OFFICE GF | 2 | 30 | 3000 | PARAGON / PLPA40L-E/65 - 4286 lm - 41.3 W | 602x602 | *dropdown* | GF | 3000 |
+| BLD1_FL0 | 1 | 21 | 2400 | PARAGON / RRDA170L12_65K - 1123 lm - 12.1 W | 100 x 100 x 100 | *dropdown* | GF | 2400 | yes |
+| BLD1_FL0 | 1 | 1 | 3000 | PARAGON / RRDA170L12_65K - 1123 lm - 12.1 W | 100 x 100 x 100 | *dropdown* | GF | 3000 | yes |
+| BLD1_FL0 | 2 | 30 | 3000 | PARAGON / PLPA40L-E/65 - 4286 lm - 41.3 W | 602 x 602 x 100 | *dropdown* | GF | 3000 | yes |
+| BLD1_FL0 | 3 | 8 | 3000 | Philips / DN393B LED22-840 ... - 2400 lm - 24 W | 177 x 177 x 100 | *dropdown* | GF | 3000 | yes |
+| BLD1_FL0 | 4 | 1 | 5000 | PARAGON / PHBSS150L65 - 22500 lm - 146.3 W | 100 x 100 x 100 | *dropdown* | GF | 5000 | yes |
 
 - The family dropdown lists the `FamilySymbol`s of category
-  `OST_LightingFixtures` already loaded in the project, with a Load Family
-  button for when the right one is not there yet. Family names come from Revit;
-  the add-in never invents them.
+  `OST_LightingFixtures` loaded in the project. Names come from Revit; the
+  add-in never invents one, and a saved mapping naming a family the project no
+  longer has is reported rather than substituted.
 - Description comes from the luminaire list, so the user can see what a type is
   before choosing a family for it.
-- Size comes from the block geometry and is advisory only. Two of the four types
-  in the reference export carry a placeholder size, so it can suggest and warn
-  but must never choose.
-- Offset is pre-filled from Z and recomputed as `Z - Elevation(level)` when the
-  level changes.
-- Two rows for type 1 rather than one, because the export puts it at two
-  heights. The warning says why.
+- Size is measured from the block geometry. It drives a suggestion and a
+  mismatch warning, but never a choice: two of the four types above carry a
+  100 x 100 placeholder rather than real dimensions, and a placeholder must not
+  be allowed to pick a family. Sizes at or below 100 mm suggest nothing.
+- Level is suggested as the highest one at or below the fixture, and Offset is
+  recomputed as `Z - Elevation(level)` whenever the level changes, so a wrong
+  guess shows up as an absurd offset rather than hiding.
+- Type 1 gets two rows rather than one because the export puts it at two
+  heights. The warning list says why.
+- Rows left unmapped are skipped, not guessed at. An `Error` warning disables
+  placement entirely, because an export that was misread would put wrong
+  luminaire counts into the model.
 
 Mappings are saved as JSON keyed by **block id** (`39794_2`), not by layer name.
 The block id is DIALux's product identity and survives a layer being renamed or
 the LUM numbering changing between revisions; the layer name does not.
 
-## Placement (phase 2-3)
+## Placement (built)
 
 Per luminaire: activate the `FamilySymbol`, create a non-structural
 `FamilyInstance` at the converted point on the chosen level, then rotate it
@@ -111,21 +124,31 @@ about the vertical axis through that point by the DXF rotation.
 Alignment between the DIALux origin and the Revit project origin needs all three
 of:
 
-1. Origin to origin, for when they already share a system.
+1. Origin to origin, for when they already share a system. **This is what the
+   command currently uses.**
 2. Two-point alignment: the user picks two reference points in Revit and gives
    the matching DXF coordinates. The most reliable option on real projects, and
    the one to reach for when the export's coordinates look unrelated to the
-   model's.
-3. Manual dX, dY and rotation.
+   model's. `CoordinateTransform.TwoPoint` is written, along with a scale check
+   that catches a mis-picked point, but the dialog does not yet collect the
+   points.
+3. Manual dX, dY and rotation. Also written, also not yet collected.
+
+Whatever the alignment, its plan rotation is added to each fixture's own, so a
+rotated alignment keeps luminaires pointing the way they do in DIALux instead of
+all facing the model's north.
 
 Families start unhosted. Because Z is read from the export, unhosted placement
 is already at the right elevation, so hosting to ceilings is a later refinement
 rather than a prerequisite.
 
-## Re-import (phase 4)
+## Re-import (stamp built, diff not yet)
 
 Every placed instance is stamped via Extensible Storage, which keeps the
-information with the element without adding project parameters:
+information with the element without adding project parameters. The stamp is
+written from the first release even though the diff comes later: without it,
+luminaires placed today could never be matched against a future export and
+would have to be deleted and replaced wholesale.
 
 ```
 DLX_SourceFile   the export it came from

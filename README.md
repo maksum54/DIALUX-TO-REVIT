@@ -6,22 +6,26 @@ product type, and with re-imports diffed against what is already in the model.
 
 ## Status
 
-Phase 1 of the roadmap is implemented: reading the export and validating it.
-Nothing touches the Revit API yet.
-
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Read the DXF, deduplicate, parse the luminaire list, validate | done |
-| 2 | Mapping UI and placement into Revit | not started |
-| 3 | Levels and offsets from Z, family suggestions from block size | not started |
-| 4 | Extensible Storage stamp and the re-import diff | not started |
-| 5 | Two-point alignment, mapping presets | not started |
+| 2 | Mapping UI and placement into Revit | done |
+| 3 | Levels and offsets from Z, family suggestions from block size | done |
+| 4 | The re-import diff | stamp written, diff not started |
+| 5 | Two-point alignment | transform built, not yet wired to the UI |
+
+Placement currently aligns origin to origin. The two-point and manual
+transforms are written but nothing calls them yet -- the dialog does not ask for
+reference points -- so a model whose origin differs from the export's needs the
+export re-based in DIALux for now.
 
 ## Layout
 
 ```
 src/DialuxToRevit.Core/   DXF reading rules. No Revit API reference, so it can
                           be tested without Revit and used from the add-in.
+src/DialuxToRevit.Revit/  Placement, levels, family catalog, the storage stamp.
+src/DialuxToRevit.Addin/  Ribbon, the import command, the WPF mapping dialog.
 tools/dxf_probe.py        Reference implementation of the same rules, runnable
                           from the command line. Doubles as the oracle the C#
                           port is checked against.
@@ -29,6 +33,43 @@ tests/                    Self-contained tests, plus a pinned regression case.
 docs/DXF-FINDINGS.md      What a real DIALux export actually contains.
 docs/DESIGN.md            The design, including the phases not yet built.
 ```
+
+## Building and installing
+
+Needs Revit 2025 installed for the API assemblies, and the .NET 8 SDK.
+
+```
+dotnet build DialuxToRevit.sln -c Release
+```
+
+If Revit is not on the default path, point the build at it:
+
+```
+dotnet build DialuxToRevit.sln -c Release -p:RevitApiDir="D:\Revit 2025\"
+```
+
+Then edit `src/DialuxToRevit.Addin/DialuxToRevit.addin` so `<Assembly>` is the
+absolute path to the built `DialuxToRevit.Addin.dll`, copy that manifest to
+`%APPDATA%\Autodesk\Revit\Addins\2025\`, and restart Revit -- a manifest
+change needs a full restart, not just closing the document.
+
+`DialuxToRevit.Core` has no Revit reference, so it builds and its rules can be
+exercised on a machine without Revit.
+
+## Using it
+
+The ribbon adds a **DIALux** tab with an **Import DXF** button. It asks for the
+export, reads it, and shows a row per product type per mounting height with the
+description from the luminaire list, the size measured from the block, and a
+dropdown of the lighting fixture types loaded in the project. Family names come
+from Revit; the add-in never invents one.
+
+Choices can be saved as a preset and reloaded on the next revision. Presets are
+keyed by DIALux block id and mounting height rather than by layer name, so they
+survive a layer being renamed or the LUM numbering changing between revisions.
+
+Every run appends a line to `DialuxToRevit-import-log.txt` beside the model,
+recording the timestamp, batch, source file and counts.
 
 ## Reading an export
 

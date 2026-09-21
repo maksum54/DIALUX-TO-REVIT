@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The mapping dialog lives here rather than in an assembly of its own: it is a
+    single window used by a single command, so a separate UI assembly would add
+    a load-time dependency and buy nothing.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>DialuxToRevit.Addin</AssemblyName>
+    <RootNamespace>DialuxToRevit.Addin</RootNamespace>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <RevitApiDir Condition="'$(RevitApiDir)' == ''">C:\Program Files\Autodesk\Revit 2025\</RevitApiDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitApiDir)RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitApiDir)RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DialuxToRevit.Core\DialuxToRevit.Core.csproj" />
+    <ProjectReference Include="..\DialuxToRevit.Revit\DialuxToRevit.Revit.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="DialuxToRevit.addin">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

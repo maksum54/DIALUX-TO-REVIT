@@ -37,10 +37,11 @@ namespace DialuxToRevit.Core.Parsing
             result.SourceFile = path;
 
             List<DxfEntity> entities = document.GetEntities("ENTITIES");
+            Dictionary<string, double[]> blockExtents = BlockGeometryReader.ReadExtents(document);
 
             ImportValidator.CheckHeaderUnits(document, result.Warnings);
             ReadLuminaireLists(entities, result);
-            ReadInstances(entities, result);
+            ReadInstances(entities, blockExtents, result);
             BuildGroups(result);
             CrossCheckIndexLabels(entities, result);
             ImportValidator.CheckQuantities(result);
@@ -105,7 +106,8 @@ namespace DialuxToRevit.Core.Parsing
         /// separate blocks. Counting INSERTs directly overstates the fixture
         /// count badly -- in the reference export, 99 INSERTs are 61 luminaires.
         /// </summary>
-        private static void ReadInstances(List<DxfEntity> entities, DialuxImportResult result)
+        private static void ReadInstances(List<DxfEntity> entities,
+            Dictionary<string, double[]> blockExtents, DialuxImportResult result)
         {
             Dictionary<Tuple<string, long, long, long>, List<DxfEntity>> buckets =
                 new Dictionary<Tuple<string, long, long, long>, List<DxfEntity>>();
@@ -162,6 +164,7 @@ namespace DialuxToRevit.Core.Parsing
                 instance.Z = head.GetDouble(30, 0.0);
                 instance.RotationDegrees = head.GetDouble(50, 0.0);
                 instance.ProductBlock = StripPartSuffix(head.GetString(2, string.Empty));
+                instance.Size = MeasureFixture(parts, blockExtents);
 
                 List<double> rotations = new List<double>();
                 List<string> bases = new List<string>();
@@ -239,6 +242,7 @@ namespace DialuxToRevit.Core.Parsing
                     group.ZMillimetres = instance.Z;
                     group.Layer = instance.Layer;
                     group.ProductBlock = instance.ProductBlock;
+                    group.Size = instance.Size;
                     group.Type = result.FindType(instance.Storey, instance.TypeIndex);
                     groups[key] = group;
                 }
@@ -330,6 +334,56 @@ namespace DialuxToRevit.Core.Parsing
                             text, nearest.Layer, nearest.TypeIndex)));
                 }
             }
+        }
+
+        /// <summary>
+        /// Overall size of one luminaire in millimetres.
+        ///
+        /// A luminaire split across several blocks is measured by the largest of
+        /// them on each axis, since the housing is what defines the footprint.
+        /// Block geometry is in metres and the INSERT scale brings it to
+        /// millimetres.
+        /// </summary>
+        private static BlockSize MeasureFixture(List<DxfEntity> parts,
+            Dictionary<string, double[]> blockExtents)
+        {
+            if (blockExtents == null || blockExtents.Count == 0)
+            {
+                return new BlockSize();
+            }
+
+            double[] largest = new double[3];
+            bool measured = false;
+
+            foreach (DxfEntity part in parts)
+            {
+                double[] extent;
+                if (!blockExtents.TryGetValue(part.GetString(2, string.Empty), out extent))
+                {
+                    continue;
+                }
+
+                measured = true;
+                double[] scale =
+                {
+                    part.GetDouble(41, 1.0),
+                    part.GetDouble(42, 1.0),
+                    part.GetDouble(43, 1.0)
+                };
+
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    double size = Math.Abs(extent[axis] * scale[axis]);
+                    if (size > largest[axis])
+                    {
+                        largest[axis] = size;
+                    }
+                }
+            }
+
+            return measured
+                ? new BlockSize(largest[0], largest[1], largest[2])
+                : new BlockSize();
         }
 
         /// <summary>"39794_2_0" -> "39794_2". Names without a part suffix pass through.</summary>

@@ -58,6 +58,9 @@ namespace DialuxToRevit.Core.Model
             }
         }
 
+        /// <summary>Size of the luminaires in this group, in millimetres.</summary>
+        public BlockSize Size { get; set; }
+
         public string Description
         {
             get { return Type != null ? Type.Description : Layer; }

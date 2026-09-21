@@ -87,6 +87,13 @@ def run_case(expected_path):
         check_close(failures, prefix + " z_mm", got["z_mm"], want["z_mm"], POSITION_TOLERANCE_MM)
         check(failures, prefix + " count", got["count"], want["count"])
         check(failures, prefix + " block_base", got["block_base"], want["block_base"])
+        if "size_mm" in want:
+            got_size = got.get("size_mm")
+            check(failures, prefix + " size present", got_size is not None, True)
+            if got_size is not None:
+                for axis, (a, b) in enumerate(zip(got_size, want["size_mm"])):
+                    check_close(failures, "{0} size axis {1}".format(prefix, axis),
+                                a, b, POSITION_TOLERANCE_MM)
         check(failures, prefix + " rotation count",
               len(got["rotations"]), len(want["rotations"]))
         for a, b in zip(got["rotations"], want["rotations"]):

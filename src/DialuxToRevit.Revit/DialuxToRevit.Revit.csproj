@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>DialuxToRevit.Revit</AssemblyName>
+    <RootNamespace>DialuxToRevit.Revit</RootNamespace>
+    <Platforms>x64</Platforms>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    Revit 2025 runs on .NET 8. Point RevitApiDir at the install folder if Revit
+    is not on the default path, e.g.
+      dotnet build -p:RevitApiDir="D:\Revit 2025\"
+  -->
+  <PropertyGroup>
+    <RevitApiDir Condition="'$(RevitApiDir)' == ''">C:\Program Files\Autodesk\Revit 2025\</RevitApiDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Private=false: Revit loads these itself; copying them beside the add-in
+         causes assembly identity conflicts at run time. -->
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitApiDir)RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitApiDir)RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DialuxToRevit.Core\DialuxToRevit.Core.csproj" />
+  </ItemGroup>
+
+</Project>
