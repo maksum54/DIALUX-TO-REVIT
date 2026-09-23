@@ -18,9 +18,9 @@ import sys
 from collections import Counter, defaultdict
 
 # DIALux layer naming. Multi-building / multi-storey aware.
-RE_LUM = re.compile(r"^DLX_BLD(\d+)_FL(\d+)_LUM\s*(\d+)$", re.IGNORECASE)
-RE_KEY = re.compile(r"^DLX_BLD(\d+)_FL(\d+)_LUMKEY$", re.IGNORECASE)
-RE_IDX = re.compile(r"^DLX_BLD(\d+)_FL(\d+)_LUMKEY_IDX$", re.IGNORECASE)
+RE_LUM = re.compile(r"^DLX_(?:BLD(\d+)_FL(\d+)_|(TERR)_)?LUM\s*(\d+)$", re.IGNORECASE)
+RE_KEY = re.compile(r"^DLX_(?:BLD(\d+)_FL(\d+)_|(TERR)_)?LUMKEY$", re.IGNORECASE)
+RE_IDX = re.compile(r"^DLX_(?:BLD(\d+)_FL(\d+)_|(TERR)_)?LUMKEY_IDX$", re.IGNORECASE)
 RE_TITLE = re.compile(r"^Luminaire list\s*\((.+)\)\s*$", re.IGNORECASE)
 # Block names look like "39794_2_0": <productId>_<variant>_<part>. The trailing
 # part index is what splits one physical luminaire across several INSERTs.
@@ -31,7 +31,7 @@ RE_BLOCK_PART = re.compile(r"^(.*)_(\d+)$")
 # only needs to absorb formatting noise, not real tolerance.
 POSITION_QUANTUM_MM = 0.1
 # How far an index label may sit from the luminaire it annotates.
-LABEL_SEARCH_RADIUS_MM = 500.0
+LABEL_SEARCH_RADIUS_MM = 1000.0
 
 
 def warn(warnings, severity, code, message):
@@ -290,20 +290,25 @@ def collect_fixtures(entities, warnings, block_sizes=None):
         m = RE_LUM.match(layer)
         if not m:
             continue
-        x, y, z = (float(first(ent, c, "0")) for c in (10, 20, 30))
+        # Block geometry is in metres, so the INSERT scale gives the drawing
+        # unit: 1000 for the usual millimetre export, 1 (or absent) for metres.
+        scale = tuple(float(first(ent, c, "1") or 1) for c in (41, 42, 43))
+        to_mm = 1000.0 / abs(scale[0]) if abs(scale[0]) > 1e-9 else 1.0
+        x, y, z = (float(first(ent, c, "0")) * to_mm for c in (10, 20, 30))
         rot = float(first(ent, 50, "0") or 0)
         block = first(ent, 2, "")
-        scale = tuple(float(first(ent, c, "1") or 1) for c in (41, 42, 43))
+        scale = tuple(v * to_mm for v in scale)
         key = (layer, quantize(x), quantize(y), quantize(z))
         buckets[key].append(
             {
                 "layer": layer,
-                "building": int(m.group(1)),
-                "floor": int(m.group(2)),
-                "type_index": int(m.group(3)),
+                "building": int(m.group(1) or 0),
+                "floor": int(m.group(2)) if m.group(2) else (-1 if m.group(3) else 0),
+                "type_index": int(m.group(4)),
                 "block": block,
                 "block_base": block_base(block),
                 "x": x, "y": y, "z": z, "rotation": rot, "scale": scale,
+                "to_mm": to_mm,
             }
         )
 
@@ -357,6 +362,7 @@ def cross_check_labels(entities, fixtures, warnings):
     an independent witness to the fixture count, so disagreement means the read
     is wrong somewhere.
     """
+    to_mm = fixtures[0]["to_mm"] if fixtures else 1.0
     labels = []
     for ent in entities:
         if ent[0][1] != "TEXT":
@@ -366,8 +372,8 @@ def cross_check_labels(entities, fixtures, warnings):
         labels.append(
             {
                 "value": (first(ent, 1, "") or "").strip(),
-                "x": float(first(ent, 10, "0")),
-                "y": float(first(ent, 20, "0")),
+                "x": float(first(ent, 10, "0")) * to_mm,
+                "y": float(first(ent, 20, "0")) * to_mm,
             }
         )
     if not labels:

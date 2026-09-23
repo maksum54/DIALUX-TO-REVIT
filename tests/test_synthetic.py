@@ -28,7 +28,8 @@ def write_dxf(path, inserts, insunits="4"):
            "0", "ENDSEC", "0", "SECTION", "2", "ENTITIES"]
     for layer, block, x, y, z, rotation in inserts:
         out += ["0", "INSERT", "8", layer, "2", block,
-                "10", repr(x), "20", repr(y), "30", repr(z), "50", repr(rotation)]
+                "10", repr(x), "20", repr(y), "30", repr(z),
+                "41", "1000.0", "42", "1000.0", "43", "1000.0", "50", repr(rotation)]
     out += ["0", "ENDSEC", "0", "EOF"]
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(out) + "\n")

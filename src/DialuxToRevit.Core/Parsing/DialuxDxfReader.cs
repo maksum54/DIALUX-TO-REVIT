@@ -23,8 +23,11 @@ namespace DialuxToRevit.Core.Parsing
         /// </summary>
         public const double PositionQuantumMillimetres = 0.1;
 
-        /// <summary>How far an index label may sit from the luminaire it annotates.</summary>
-        public const double LabelSearchRadiusMillimetres = 500.0;
+        /// <summary>
+        /// How far an index label may sit from the luminaire it annotates. DIALux
+        /// puts it at the fixture end, so long linear fixtures need the slack.
+        /// </summary>
+        public const double LabelSearchRadiusMillimetres = 1000.0;
 
         /// <summary>Block names look like "39794_2_0": product, variant, part.</summary>
         private static readonly Regex BlockPartSuffix = new Regex(
@@ -41,9 +44,10 @@ namespace DialuxToRevit.Core.Parsing
 
             ImportValidator.CheckHeaderUnits(document, result.Warnings);
             ReadLuminaireLists(entities, result);
-            ReadInstances(entities, blockExtents, result);
+            double toMm = DetectMillimetresPerUnit(entities, result);
+            ReadInstances(entities, blockExtents, toMm, result);
             BuildGroups(result);
-            CrossCheckIndexLabels(entities, result);
+            CrossCheckIndexLabels(entities, toMm, result);
             ImportValidator.CheckQuantities(result);
 
             return result;
@@ -80,12 +84,24 @@ namespace DialuxToRevit.Core.Parsing
                 List<LuminaireType> types =
                     LuminaireListReader.Read(grid, storey, out buildingName, out storeyName);
 
-                result.BuildingNames[storey] = buildingName;
-                result.StoreyNames[storey] = storeyName;
-                result.Types.AddRange(types);
+                // Exports without storeys can repeat the list per building and
+                // per room; the rows are identical, so keep the first and let
+                // the most specific title name the storey.
+                if (!result.StoreyNames.ContainsKey(storey) || !string.IsNullOrEmpty(storeyName))
+                {
+                    result.BuildingNames[storey] = buildingName;
+                    result.StoreyNames[storey] = storeyName;
+                }
 
                 foreach (LuminaireType type in types)
                 {
+                    if (result.FindType(storey, type.Index) != null)
+                    {
+                        continue;
+                    }
+
+                    result.Types.Add(type);
+
                     if (string.IsNullOrEmpty(type.Product))
                     {
                         result.Warnings.Add(new ImportWarning(
@@ -99,6 +115,47 @@ namespace DialuxToRevit.Core.Parsing
         }
 
         /// <summary>
+        /// Millimetres per drawing unit. Block geometry is always in metres, so
+        /// the INSERT scale says what the drawing unit is: 1000 in the usual
+        /// millimetre export, 1 when DIALux was set to export in metres.
+        /// </summary>
+        private static double DetectMillimetresPerUnit(List<DxfEntity> entities, DialuxImportResult result)
+        {
+            foreach (DxfEntity entity in entities)
+            {
+                int building, floor, typeIndex;
+                if (!string.Equals(entity.Type, "INSERT", StringComparison.OrdinalIgnoreCase)
+                    || !DialuxLayerName.TryParseLuminaire(entity.Layer, out building, out floor, out typeIndex))
+                {
+                    continue;
+                }
+
+                double scale = Math.Abs(entity.GetDouble(41, 1.0));
+                if (scale < 1e-9)
+                {
+                    return 1.0;
+                }
+
+                double toMm = 1000.0 / scale;
+                if (Math.Abs(toMm - 1.0) > 1e-6)
+                {
+                    result.Warnings.Add(new ImportWarning(
+                        WarningSeverity.Info,
+                        "UNITS_NOT_MM",
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Luminaire blocks are inserted at scale {0:0.###}, so the drawing is not in millimetres; " +
+                            "coordinates are multiplied by {1:0.###}.",
+                            scale, toMm)));
+                }
+
+                return toMm;
+            }
+
+            return 1.0;
+        }
+
+        /// <summary>
         /// Folds INSERTs into physical luminaires.
         ///
         /// One luminaire is frequently exported as several INSERTs sharing an
@@ -107,7 +164,7 @@ namespace DialuxToRevit.Core.Parsing
         /// count badly -- in the reference export, 99 INSERTs are 61 luminaires.
         /// </summary>
         private static void ReadInstances(List<DxfEntity> entities,
-            Dictionary<string, double[]> blockExtents, DialuxImportResult result)
+            Dictionary<string, double[]> blockExtents, double toMm, DialuxImportResult result)
         {
             Dictionary<Tuple<string, long, long, long>, List<DxfEntity>> buckets =
                 new Dictionary<Tuple<string, long, long, long>, List<DxfEntity>>();
@@ -131,9 +188,9 @@ namespace DialuxToRevit.Core.Parsing
 
                 Tuple<string, long, long, long> key = Tuple.Create(
                     entity.Layer,
-                    Quantize(entity.GetDouble(10, 0.0)),
-                    Quantize(entity.GetDouble(20, 0.0)),
-                    Quantize(entity.GetDouble(30, 0.0)));
+                    Quantize(entity.GetDouble(10, 0.0) * toMm),
+                    Quantize(entity.GetDouble(20, 0.0) * toMm),
+                    Quantize(entity.GetDouble(30, 0.0) * toMm));
 
                 List<DxfEntity> bucket;
                 if (!buckets.TryGetValue(key, out bucket))
@@ -159,12 +216,12 @@ namespace DialuxToRevit.Core.Parsing
                 instance.Layer = head.Layer;
                 instance.Storey = new StoreyKey(building, floor);
                 instance.TypeIndex = typeIndex;
-                instance.X = head.GetDouble(10, 0.0);
-                instance.Y = head.GetDouble(20, 0.0);
-                instance.Z = head.GetDouble(30, 0.0);
+                instance.X = head.GetDouble(10, 0.0) * toMm;
+                instance.Y = head.GetDouble(20, 0.0) * toMm;
+                instance.Z = head.GetDouble(30, 0.0) * toMm;
                 instance.RotationDegrees = head.GetDouble(50, 0.0);
                 instance.ProductBlock = StripPartSuffix(head.GetString(2, string.Empty));
-                instance.Size = MeasureFixture(parts, blockExtents);
+                instance.Size = MeasureFixture(parts, blockExtents, toMm);
 
                 List<double> rotations = new List<double>();
                 List<string> bases = new List<string>();
@@ -264,7 +321,7 @@ namespace DialuxToRevit.Core.Parsing
         /// They are an independent witness to both the count and the type
         /// assignment, so a disagreement means the read is wrong somewhere.
         /// </summary>
-        private static void CrossCheckIndexLabels(List<DxfEntity> entities, DialuxImportResult result)
+        private static void CrossCheckIndexLabels(List<DxfEntity> entities, double toMm, DialuxImportResult result)
         {
             foreach (DxfEntity entity in entities)
             {
@@ -281,8 +338,8 @@ namespace DialuxToRevit.Core.Parsing
 
                 StoreyKey storey = new StoreyKey(building, floor);
                 string text = (entity.GetString(1, string.Empty) ?? string.Empty).Trim();
-                double lx = entity.GetDouble(10, 0.0);
-                double ly = entity.GetDouble(20, 0.0);
+                double lx = entity.GetDouble(10, 0.0) * toMm;
+                double ly = entity.GetDouble(20, 0.0) * toMm;
 
                 LuminaireInstance nearest = null;
                 double nearestDistance = double.MaxValue;
@@ -345,7 +402,7 @@ namespace DialuxToRevit.Core.Parsing
         /// millimetres.
         /// </summary>
         private static BlockSize MeasureFixture(List<DxfEntity> parts,
-            Dictionary<string, double[]> blockExtents)
+            Dictionary<string, double[]> blockExtents, double toMm)
         {
             if (blockExtents == null || blockExtents.Count == 0)
             {
@@ -373,7 +430,7 @@ namespace DialuxToRevit.Core.Parsing
 
                 for (int axis = 0; axis < 3; axis++)
                 {
-                    double size = Math.Abs(extent[axis] * scale[axis]);
+                    double size = Math.Abs(extent[axis] * scale[axis] * toMm);
                     if (size > largest[axis])
                     {
                         largest[axis] = size;

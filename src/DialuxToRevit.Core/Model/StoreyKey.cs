@@ -32,6 +32,11 @@ namespace DialuxToRevit.Core.Model
 
         public override string ToString()
         {
+            if (Building == 0 && Floor == -1)
+            {
+                return "TERRAIN";
+            }
+
             return string.Format(CultureInfo.InvariantCulture, "BLD{0}_FL{1}", Building, Floor);
         }
     }
