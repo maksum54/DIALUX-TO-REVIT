@@ -44,8 +44,9 @@ namespace DialuxToRevit.Core.Parsing
 
             ImportValidator.CheckHeaderUnits(document, result.Warnings);
             ReadLuminaireLists(entities, result);
-            double toMm = DetectMillimetresPerUnit(entities, result);
-            ReadInstances(entities, blockExtents, toMm, result);
+            Dictionary<string, LuminaireLayer> layers = LuminaireLayers.Classify(entities, result);
+            double toMm = DetectMillimetresPerUnit(entities, layers, result);
+            ReadInstances(entities, blockExtents, layers, toMm, result);
             BuildGroups(result);
             CrossCheckIndexLabels(entities, toMm, result);
             ImportValidator.CheckQuantities(result);
@@ -119,13 +120,13 @@ namespace DialuxToRevit.Core.Parsing
         /// the INSERT scale says what the drawing unit is: 1000 in the usual
         /// millimetre export, 1 when DIALux was set to export in metres.
         /// </summary>
-        private static double DetectMillimetresPerUnit(List<DxfEntity> entities, DialuxImportResult result)
+        private static double DetectMillimetresPerUnit(List<DxfEntity> entities,
+            Dictionary<string, LuminaireLayer> layers, DialuxImportResult result)
         {
             foreach (DxfEntity entity in entities)
             {
-                int building, floor, typeIndex;
                 if (!string.Equals(entity.Type, "INSERT", StringComparison.OrdinalIgnoreCase)
-                    || !DialuxLayerName.TryParseLuminaire(entity.Layer, out building, out floor, out typeIndex))
+                    || !layers.ContainsKey(entity.Layer ?? string.Empty))
                 {
                     continue;
                 }
@@ -164,7 +165,8 @@ namespace DialuxToRevit.Core.Parsing
         /// count badly -- in the reference export, 99 INSERTs are 61 luminaires.
         /// </summary>
         private static void ReadInstances(List<DxfEntity> entities,
-            Dictionary<string, double[]> blockExtents, double toMm, DialuxImportResult result)
+            Dictionary<string, double[]> blockExtents, Dictionary<string, LuminaireLayer> layers,
+            double toMm, DialuxImportResult result)
         {
             Dictionary<Tuple<string, long, long, long>, List<DxfEntity>> buckets =
                 new Dictionary<Tuple<string, long, long, long>, List<DxfEntity>>();
@@ -178,8 +180,7 @@ namespace DialuxToRevit.Core.Parsing
                     continue;
                 }
 
-                int building, floor, typeIndex;
-                if (!DialuxLayerName.TryParseLuminaire(entity.Layer, out building, out floor, out typeIndex))
+                if (!layers.ContainsKey(entity.Layer ?? string.Empty))
                 {
                     continue;
                 }
@@ -209,13 +210,12 @@ namespace DialuxToRevit.Core.Parsing
                 parts.Sort((a, b) => string.CompareOrdinal(a.GetString(2, string.Empty), b.GetString(2, string.Empty)));
 
                 DxfEntity head = parts[0];
-                int building, floor, typeIndex;
-                DialuxLayerName.TryParseLuminaire(head.Layer, out building, out floor, out typeIndex);
+                LuminaireLayer layer = layers[head.Layer ?? string.Empty];
 
                 LuminaireInstance instance = new LuminaireInstance();
                 instance.Layer = head.Layer;
-                instance.Storey = new StoreyKey(building, floor);
-                instance.TypeIndex = typeIndex;
+                instance.Storey = new StoreyKey(layer.Building, layer.Floor);
+                instance.TypeIndex = layer.TypeIndex;
                 instance.X = head.GetDouble(10, 0.0) * toMm;
                 instance.Y = head.GetDouble(20, 0.0) * toMm;
                 instance.Z = head.GetDouble(30, 0.0) * toMm;

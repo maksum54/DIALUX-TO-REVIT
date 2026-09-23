@@ -273,7 +273,46 @@ def quantize(value):
     return int(round(float(value) / POSITION_QUANTUM_MM))
 
 
-def collect_fixtures(entities, warnings, block_sizes=None):
+RE_DLX_BLOCK = re.compile(r"^\d+_\d+_\d+$")
+
+
+def classify_layers(entities, warnings):
+    """
+    Map each luminaire layer to (building, floor, type_index).
+
+    DIALux-named layers are parsed. When a file has none (renamed in CAD or a
+    custom scheme), every layer holding DIALux luminaire blocks -- or, failing
+    that, any INSERT -- becomes one type, numbered in layer-name order.
+    """
+    inserts = [e for e in entities if e[0][1] == "INSERT"]
+    layers = {}
+    for ent in inserts:
+        layer = first(ent, 8, "")
+        m = RE_LUM.match(layer)
+        if m and layer not in layers:
+            layers[layer] = (
+                int(m.group(1) or 0),
+                int(m.group(2)) if m.group(2) else (-1 if m.group(3) else 0),
+                int(m.group(4)),
+            )
+    if layers:
+        return layers
+
+    candidates = [e for e in inserts if RE_DLX_BLOCK.match(first(e, 2, "") or "")]
+    if not candidates:
+        candidates = inserts
+    names = sorted({first(e, 8, "") for e in candidates}, key=str.lower)
+    for i, name in enumerate(names):
+        layers[name] = (0, 0, i + 1)
+    if names:
+        warn(warnings, "Info", "LAYERS_NOT_DIALUX",
+             f"No DIALux-named luminaire layers; each of the {len(names)} "
+             f"layer(s) holding luminaire blocks is read as one type "
+             f"({', '.join(names)}).")
+    return layers
+
+
+def collect_fixtures(entities, warnings, block_sizes=None, layers=None):
     """
     Fold INSERTs down to physical luminaires.
 
@@ -282,14 +321,16 @@ def collect_fixtures(entities, warnings, block_sizes=None):
     would overstate the fixture count -- in the sample, 99 INSERTs are 61
     luminaires.
     """
+    if layers is None:
+        layers = classify_layers(entities, warnings)
     buckets = defaultdict(list)
     for ent in entities:
         if ent[0][1] != "INSERT":
             continue
         layer = first(ent, 8, "")
-        m = RE_LUM.match(layer)
-        if not m:
+        if layer not in layers:
             continue
+        building, floor, type_index = layers[layer]
         # Block geometry is in metres, so the INSERT scale gives the drawing
         # unit: 1000 for the usual millimetre export, 1 (or absent) for metres.
         scale = tuple(float(first(ent, c, "1") or 1) for c in (41, 42, 43))
@@ -302,9 +343,9 @@ def collect_fixtures(entities, warnings, block_sizes=None):
         buckets[key].append(
             {
                 "layer": layer,
-                "building": int(m.group(1) or 0),
-                "floor": int(m.group(2)) if m.group(2) else (-1 if m.group(3) else 0),
-                "type_index": int(m.group(4)),
+                "building": building,
+                "floor": floor,
+                "type_index": type_index,
                 "block": block,
                 "block_base": block_base(block),
                 "x": x, "y": y, "z": z, "rotation": rot, "scale": scale,
@@ -475,7 +516,8 @@ def probe(path):
     building_name, storey_name = split_title(title)
 
     block_sizes = read_block_sizes(pairs)
-    fixtures = collect_fixtures(entities, warnings, block_sizes)
+    layers = classify_layers(entities, warnings)
+    fixtures = collect_fixtures(entities, warnings, block_sizes, layers)
     groups = build_groups(fixtures, warnings)
     matched, mismatched = cross_check_labels(entities, fixtures, warnings)
 
@@ -507,7 +549,7 @@ def probe(path):
                  f"geometry yields {per_type.get(idx, 0)}.")
 
     inserts = sum(1 for e in entities if e[0][1] == "INSERT"
-                  and RE_LUM.match(first(e, 8, "")))
+                  and first(e, 8, "") in layers)
     return {
         "source": path,
         "building": building_name,

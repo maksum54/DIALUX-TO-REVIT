@@ -128,6 +128,32 @@ def test_non_luminaire_layers_ignored(tmp, f):
     f.check("only luminaire INSERTs counted", r["insert_count"], 1)
 
 
+def test_any_layer_name_imports(tmp, f):
+    """Renamed layers still import: each layer of luminaire blocks is one type."""
+    path = write_dxf(os.path.join(tmp, "renamed.dxf"), [
+        ("LAMPU DOWNLIGHT", "41725_2_0", 1000.0, 2000.0, 2400.0, 0.0),
+        ("LAMPU DOWNLIGHT", "41725_2_1", 1000.0, 2000.0, 2400.0, 0.0),
+        ("E-LIGHTING TL", "39794_2_0", 4000.0, 2000.0, 3000.0, 0.0),
+        ("0", "SomeTitleBlock", 1000.0, 2000.0, 0.0, 0.0),
+    ])
+    r = probe(path)
+    f.check("renamed layers found", r["fixture_count"], 2)
+    f.check("title block ignored", r["insert_count"], 3)
+    f.check("one type per layer, by name",
+            sorted((x["layer"], x["type_index"]) for x in r["fixtures"]),
+            [("E-LIGHTING TL", 1), ("LAMPU DOWNLIGHT", 2)])
+
+
+def test_dialux_layers_win_over_others(tmp, f):
+    """With DIALux layers present, other layers are not luminaires."""
+    path = write_dxf(os.path.join(tmp, "mixed.dxf"), [
+        ("DLX_LUM 1", "41725_2_0", 1000.0, 2000.0, 2400.0, 0.0),
+        ("MY LAYER", "39794_2_0", 4000.0, 2000.0, 3000.0, 0.0),
+    ])
+    r = probe(path)
+    f.check("only DIALux layer read", r["fixture_count"], 1)
+
+
 def test_type_drawn_without_a_list_row(tmp, f):
     """A type with no luminaire list row would map with no description shown."""
     path = write_dxf(os.path.join(tmp, "nolist.dxf"), [
