@@ -7,19 +7,27 @@ namespace DialuxToRevit.Core.Parsing
     /// "DLX_BLD1_FL0_LUM 2". Multi-storey exports reuse the same scheme with a
     /// different FL number, so the building/storey pair is read from every layer
     /// rather than assumed to be constant across the file.
+    ///
+    /// Exports without buildings/storeys drop the BLD/FL part ("DLX_LUM 1"),
+    /// and outdoor scenes use "DLX_TERR_LUM 1". Those map to storey 0/0 and to
+    /// <see cref="TerrainFloor"/> respectively, so the terrain type numbers --
+    /// which restart at 1 -- never collide with the indoor ones.
     /// </summary>
     public static class DialuxLayerName
     {
+        /// <summary>Floor number assigned to "DLX_TERR_" (outdoor) layers.</summary>
+        public const int TerrainFloor = -1;
+
         private static readonly Regex LuminaireLayer = new Regex(
-            @"^DLX_BLD(?<bld>\d+)_FL(?<flr>\d+)_LUM\s*(?<idx>\d+)$",
+            @"^DLX_(?:BLD(?<bld>\d+)_FL(?<flr>\d+)_|(?<terr>TERR)_)?LUM\s*(?<idx>\d+)$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex ListLayer = new Regex(
-            @"^DLX_BLD(?<bld>\d+)_FL(?<flr>\d+)_LUMKEY$",
+            @"^DLX_(?:BLD(?<bld>\d+)_FL(?<flr>\d+)_|(?<terr>TERR)_)?LUMKEY$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex IndexLayer = new Regex(
-            @"^DLX_BLD(?<bld>\d+)_FL(?<flr>\d+)_LUMKEY_IDX$",
+            @"^DLX_(?:BLD(?<bld>\d+)_FL(?<flr>\d+)_|(?<terr>TERR)_)?LUMKEY_IDX$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         /// <summary>A luminaire layer, one per product type per storey.</summary>
@@ -40,8 +48,7 @@ namespace DialuxToRevit.Core.Parsing
                 return false;
             }
 
-            building = int.Parse(match.Groups["bld"].Value);
-            floor = int.Parse(match.Groups["flr"].Value);
+            ReadStorey(match, out building, out floor);
             typeIndex = int.Parse(match.Groups["idx"].Value);
             return true;
         }
@@ -74,9 +81,21 @@ namespace DialuxToRevit.Core.Parsing
                 return false;
             }
 
-            building = int.Parse(match.Groups["bld"].Value);
-            floor = int.Parse(match.Groups["flr"].Value);
+            ReadStorey(match, out building, out floor);
             return true;
+        }
+
+        private static void ReadStorey(Match match, out int building, out int floor)
+        {
+            if (match.Groups["bld"].Success)
+            {
+                building = int.Parse(match.Groups["bld"].Value);
+                floor = int.Parse(match.Groups["flr"].Value);
+                return;
+            }
+
+            building = 0;
+            floor = match.Groups["terr"].Success ? TerrainFloor : 0;
         }
     }
 }

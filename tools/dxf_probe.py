@@ -18,9 +18,9 @@ import sys
 from collections import Counter, defaultdict
 
 # DIALux layer naming. Multi-building / multi-storey aware.
-RE_LUM = re.compile(r"^DLX_BLD(\d+)_FL(\d+)_LUM\s*(\d+)$", re.IGNORECASE)
-RE_KEY = re.compile(r"^DLX_BLD(\d+)_FL(\d+)_LUMKEY$", re.IGNORECASE)
-RE_IDX = re.compile(r"^DLX_BLD(\d+)_FL(\d+)_LUMKEY_IDX$", re.IGNORECASE)
+RE_LUM = re.compile(r"^DLX_(?:BLD(\d+)_FL(\d+)_|(TERR)_)?LUM\s*(\d+)$", re.IGNORECASE)
+RE_KEY = re.compile(r"^DLX_(?:BLD(\d+)_FL(\d+)_|(TERR)_)?LUMKEY$", re.IGNORECASE)
+RE_IDX = re.compile(r"^DLX_(?:BLD(\d+)_FL(\d+)_|(TERR)_)?LUMKEY_IDX$", re.IGNORECASE)
 RE_TITLE = re.compile(r"^Luminaire list\s*\((.+)\)\s*$", re.IGNORECASE)
 # Block names look like "39794_2_0": <productId>_<variant>_<part>. The trailing
 # part index is what splits one physical luminaire across several INSERTs.
@@ -31,7 +31,7 @@ RE_BLOCK_PART = re.compile(r"^(.*)_(\d+)$")
 # only needs to absorb formatting noise, not real tolerance.
 POSITION_QUANTUM_MM = 0.1
 # How far an index label may sit from the luminaire it annotates.
-LABEL_SEARCH_RADIUS_MM = 500.0
+LABEL_SEARCH_RADIUS_MM = 1000.0
 
 
 def warn(warnings, severity, code, message):
@@ -273,7 +273,46 @@ def quantize(value):
     return int(round(float(value) / POSITION_QUANTUM_MM))
 
 
-def collect_fixtures(entities, warnings, block_sizes=None):
+RE_DLX_BLOCK = re.compile(r"^\d+_\d+_\d+$")
+
+
+def classify_layers(entities, warnings):
+    """
+    Map each luminaire layer to (building, floor, type_index).
+
+    DIALux-named layers are parsed. When a file has none (renamed in CAD or a
+    custom scheme), every layer holding DIALux luminaire blocks -- or, failing
+    that, any INSERT -- becomes one type, numbered in layer-name order.
+    """
+    inserts = [e for e in entities if e[0][1] == "INSERT"]
+    layers = {}
+    for ent in inserts:
+        layer = first(ent, 8, "")
+        m = RE_LUM.match(layer)
+        if m and layer not in layers:
+            layers[layer] = (
+                int(m.group(1) or 0),
+                int(m.group(2)) if m.group(2) else (-1 if m.group(3) else 0),
+                int(m.group(4)),
+            )
+    if layers:
+        return layers
+
+    candidates = [e for e in inserts if RE_DLX_BLOCK.match(first(e, 2, "") or "")]
+    if not candidates:
+        candidates = inserts
+    names = sorted({first(e, 8, "") for e in candidates}, key=str.lower)
+    for i, name in enumerate(names):
+        layers[name] = (0, 0, i + 1)
+    if names:
+        warn(warnings, "Info", "LAYERS_NOT_DIALUX",
+             f"No DIALux-named luminaire layers; each of the {len(names)} "
+             f"layer(s) holding luminaire blocks is read as one type "
+             f"({', '.join(names)}).")
+    return layers
+
+
+def collect_fixtures(entities, warnings, block_sizes=None, layers=None):
     """
     Fold INSERTs down to physical luminaires.
 
@@ -282,28 +321,35 @@ def collect_fixtures(entities, warnings, block_sizes=None):
     would overstate the fixture count -- in the sample, 99 INSERTs are 61
     luminaires.
     """
+    if layers is None:
+        layers = classify_layers(entities, warnings)
     buckets = defaultdict(list)
     for ent in entities:
         if ent[0][1] != "INSERT":
             continue
         layer = first(ent, 8, "")
-        m = RE_LUM.match(layer)
-        if not m:
+        if layer not in layers:
             continue
-        x, y, z = (float(first(ent, c, "0")) for c in (10, 20, 30))
+        building, floor, type_index = layers[layer]
+        # Block geometry is in metres, so the INSERT scale gives the drawing
+        # unit: 1000 for the usual millimetre export, 1 (or absent) for metres.
+        scale = tuple(float(first(ent, c, "1") or 1) for c in (41, 42, 43))
+        to_mm = 1000.0 / abs(scale[0]) if abs(scale[0]) > 1e-9 else 1.0
+        x, y, z = (float(first(ent, c, "0")) * to_mm for c in (10, 20, 30))
         rot = float(first(ent, 50, "0") or 0)
         block = first(ent, 2, "")
-        scale = tuple(float(first(ent, c, "1") or 1) for c in (41, 42, 43))
+        scale = tuple(v * to_mm for v in scale)
         key = (layer, quantize(x), quantize(y), quantize(z))
         buckets[key].append(
             {
                 "layer": layer,
-                "building": int(m.group(1)),
-                "floor": int(m.group(2)),
-                "type_index": int(m.group(3)),
+                "building": building,
+                "floor": floor,
+                "type_index": type_index,
                 "block": block,
                 "block_base": block_base(block),
                 "x": x, "y": y, "z": z, "rotation": rot, "scale": scale,
+                "to_mm": to_mm,
             }
         )
 
@@ -357,6 +403,7 @@ def cross_check_labels(entities, fixtures, warnings):
     an independent witness to the fixture count, so disagreement means the read
     is wrong somewhere.
     """
+    to_mm = fixtures[0]["to_mm"] if fixtures else 1.0
     labels = []
     for ent in entities:
         if ent[0][1] != "TEXT":
@@ -366,8 +413,8 @@ def cross_check_labels(entities, fixtures, warnings):
         labels.append(
             {
                 "value": (first(ent, 1, "") or "").strip(),
-                "x": float(first(ent, 10, "0")),
-                "y": float(first(ent, 20, "0")),
+                "x": float(first(ent, 10, "0")) * to_mm,
+                "y": float(first(ent, 20, "0")) * to_mm,
             }
         )
     if not labels:
@@ -469,7 +516,8 @@ def probe(path):
     building_name, storey_name = split_title(title)
 
     block_sizes = read_block_sizes(pairs)
-    fixtures = collect_fixtures(entities, warnings, block_sizes)
+    layers = classify_layers(entities, warnings)
+    fixtures = collect_fixtures(entities, warnings, block_sizes, layers)
     groups = build_groups(fixtures, warnings)
     matched, mismatched = cross_check_labels(entities, fixtures, warnings)
 
@@ -501,7 +549,7 @@ def probe(path):
                  f"geometry yields {per_type.get(idx, 0)}.")
 
     inserts = sum(1 for e in entities if e[0][1] == "INSERT"
-                  and RE_LUM.match(first(e, 8, "")))
+                  and first(e, 8, "") in layers)
     return {
         "source": path,
         "building": building_name,
