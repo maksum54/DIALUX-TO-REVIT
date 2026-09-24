@@ -14,6 +14,19 @@ LAYERS = {
 }
 
 
+def prepare(doc):
+    """Make an existing drawing ready to receive a detail (layers + text style)."""
+    if "TX-AN" not in doc.styles:
+        doc.styles.add("TX-AN", font="ARIALN.TTF")
+    if "DASHED" not in doc.linetypes:
+        doc.linetypes.add("DASHED", pattern=[0.6, 0.5, -0.1])
+    for name, color in LAYERS.items():
+        if name not in doc.layers:
+            doc.layers.add(name, color=color)
+    doc.layers.get("TID-HIDDEN").dxf.linetype = "DASHED"
+    return doc
+
+
 def new_doc():
     doc = ezdxf.new("R2010", setup=True)
     doc.units = ezdxf.units.MM

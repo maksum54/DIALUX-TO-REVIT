@@ -104,7 +104,7 @@ def section(sh, ox, oy):
     sh.line(X(-600, body_b - 25), X(-210, body_b - 25), "TID-ELC DIMENTION")
     # FFL
     sh.pl([X(-900, 0), X(900, 0)], "TID-STRUCTURE", width=6)
-    sh.fill([X(-900, -60), X(900, -60), X(900, 0), X(-900, 0)], color=8, pattern="AR-CONC", scale=0.4)
+    sh.fill([X(-900, -60), X(900, -60), X(900, 0), X(-900, 0)], rgb=(200, 200, 200))
     sh.text("FFL", X(-880, 20), h=45)
     sh.line(X(-700, 0), X(-700, body_b - 25), "TID-ELC DIMENTION")
     sh.text("MOUNTING HEIGHT REFER TO LAYOUT", X(-735, 150), h=40, rot=90)

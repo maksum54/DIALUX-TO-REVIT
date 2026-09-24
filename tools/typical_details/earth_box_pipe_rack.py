@@ -96,11 +96,11 @@ def draw(doc, ox=0, oy=0):
 
     # BC 35 mm² bonding: box -> floor -> column
     gx = bx1 - 110
-    path35 = [(gx, 930, bz0 - 45), (gx, 930, 60), (gx, 930, 25), (gx, 0, 25), (-360, 0, 25),
+    path35 = [(gx, 930, bz0 - 45), (gx, 930, 60), (gx, 930, 25), (-600, 930, 25), (-600, 0, 25), (-360, 0, 25),
               (-360, 0, 300), (-360, 0, 330), (-170, 0, 360), (-170, 0, 440)]
     ipl(path35, "ELC-GROUNDING", width=45)
     # cable cleats along the floor / pedestal
-    cleats = [(gx, 600, 25), (gx, 200, 25), (-1200, 0, 25), (-800, 0, 25), (-360, 0, 180)]
+    cleats = [(-1200, 930, 25), (-900, 930, 25), (-600, 600, 25), (-600, 300, 25), (-450, 0, 25), (-360, 0, 180)]
     for p in cleats:
         x, y, z = p
         if y not in (0,):
@@ -130,13 +130,13 @@ def draw(doc, ox=0, oy=0):
     # balloons
     lug = I((-172, 0, 565))
     sh.balloon(lug, (lug[0] + 1500, lug[1] + 900), 1)
-    cab = I((-1000, 0, 25))
+    cab = I((-1050, 930, 25))
     sh.balloon(cab, (cab[0] + 600, cab[1] - 1400), 2)
     ebx = I((bx0 + 60, 860, (bz0 + bz1) / 2))
     sh.balloon(ebx, (ebx[0] - 1300, ebx[1] + 300), 3)
     boss = I((-160, 25, 615))
     sh.balloon(boss, (boss[0] + 1500, boss[1] + 1700), 4)
-    clt = I((gx, 200, 45))
+    clt = I((-600, 300, 45))
     sh.balloon(clt, (clt[0] - 1200, clt[1] - 900), 5)
     b70 = I((gx2, 930, 200))
     sh.balloon(b70, (b70[0] - 1300, b70[1] - 300), 6)
