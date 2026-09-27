@@ -46,6 +46,36 @@ namespace DialuxToRevit.Revit.Geometry
             return new CoordinateTransform(0.0, 0.0, 0.0, 0.0, 0.0);
         }
 
+        /// <summary>
+        /// The export is in the project's shared coordinates.
+        ///
+        /// Revit's DWG export defaults to "Shared" as its coordinate basis, so a
+        /// DWG written from Revit -- and a DIALux export built on top of it
+        /// without moving the drawing -- is expressed relative to the survey
+        /// point, not the internal origin. Placing those numbers at the internal
+        /// origin shifts (and, with a rotated True North, turns) the whole
+        /// layout by the project's location transform. This undoes it.
+        /// </summary>
+        public static CoordinateTransform FromSharedCoordinates(Document document)
+        {
+            if (document == null)
+            {
+                throw new ArgumentNullException(nameof(document));
+            }
+
+            // Total transform maps internal -> shared; its inverse maps the
+            // exported shared coordinates back onto the model.
+            Transform sharedToInternal = document.ActiveProjectLocation.GetTotalTransform().Inverse;
+            double rotation = Math.Atan2(sharedToInternal.BasisX.Y, sharedToInternal.BasisX.X);
+
+            return new CoordinateTransform(
+                rotation,
+                0.0,
+                0.0,
+                sharedToInternal.Origin.X,
+                sharedToInternal.Origin.Y);
+        }
+
         /// <summary>A translation and rotation entered by hand, in millimetres and degrees.</summary>
         public static CoordinateTransform Manual(double dxMillimetres, double dyMillimetres,
             double rotationDegrees)
