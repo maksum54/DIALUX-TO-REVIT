@@ -87,15 +87,18 @@ namespace DialuxToRevit.Addin.Commands
                 return Result.Cancelled;
             }
 
+            CoordinateTransform transform = AskForCoordinateBasis(document);
+            if (transform == null)
+            {
+                return Result.Cancelled;
+            }
+
             PlacementOptions options = new PlacementOptions
             {
                 SourceFile = path,
                 BatchId = Guid.NewGuid().ToString("N").Substring(0, 12),
 
-                // Origin to origin for now. Two-point alignment is the next
-                // piece of work; until then a model whose origin differs from
-                // the export's needs the export re-based in DIALux.
-                Transform = CoordinateTransform.OriginToOrigin()
+                Transform = transform
             };
 
             foreach (KeyValuePair<string, FamilyMapping> pair in viewModel.BuildMappings())
@@ -153,6 +156,41 @@ namespace DialuxToRevit.Addin.Commands
             };
 
             return window.ShowDialog() == true;
+        }
+
+        /// <summary>
+        /// Which coordinate system the DWG the DIALux project was built on used.
+        /// Revit's DWG export defaults to Shared, which is why that is offered
+        /// first; picking the wrong one moves the whole layout by the offset
+        /// between the survey point and the internal origin.
+        /// </summary>
+        private static CoordinateTransform AskForCoordinateBasis(Document document)
+        {
+            TaskDialog dialog = new TaskDialog("Import DIALux luminaires")
+            {
+                MainInstruction = "Which coordinates does the export use?",
+                MainContent =
+                    "Choose the \"Coordinate system basis\" that was set when the " +
+                    "plan was exported from Revit to DWG (Export > CAD Formats > " +
+                    "Modify Setup > General). Revit's default is Shared.",
+                CommonButtons = TaskDialogCommonButtons.Cancel
+            };
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
+                "Shared coordinates",
+                "Relative to the survey point. Revit's default for DWG export.");
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
+                "Project internal origin",
+                "The DWG was exported with \"Project Internal\" as the basis.");
+
+            switch (dialog.Show())
+            {
+                case TaskDialogResult.CommandLink1:
+                    return CoordinateTransform.FromSharedCoordinates(document);
+                case TaskDialogResult.CommandLink2:
+                    return CoordinateTransform.OriginToOrigin();
+                default:
+                    return null;
+            }
         }
 
         private static string AskForExport()

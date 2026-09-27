@@ -14,10 +14,13 @@ product type, and with re-imports diffed against what is already in the model.
 | 4 | The re-import diff | done |
 | 5 | Two-point alignment | transform built, not yet wired to the UI |
 
-Placement currently aligns origin to origin. The two-point and manual
-transforms are written but nothing calls them yet -- the dialog does not ask for
-reference points -- so a model whose origin differs from the export's needs the
-export re-based in DIALux for now.
+Before placing, the add-in asks which coordinate basis the Revit-to-DWG export
+used. Revit's DWG export defaults to **Shared** coordinates (survey point), so a
+DIALux export built on that DWG without moving it is in shared coordinates too;
+choosing "Shared coordinates" maps it back through the project location. Choose
+"Project internal origin" only if the DWG was exported with the "Project
+Internal" basis. The two-point and manual transforms are written but not yet
+wired to the UI.
 
 ## Layout
 
